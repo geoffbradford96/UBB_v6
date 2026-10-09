@@ -11,7 +11,7 @@ size = Vector3(4, 8, 4)
 radius = 15.0
 height = 20.0
 
-[node name="Tower" type="StaticBody3D" groups=["Team2"]]
+[node name="Tower" type="StaticBody3D" ]
 script = ExtResource("1_script")
 projectile_scene = ExtResource("2_proj")
 
@@ -36,3 +36,4 @@ shape = SubResource("CylinderShape3D_detect")
 
 [connection signal="body_entered" from="DetectionArea" to="." method="_on_detection_area_body_entered"]
 [connection signal="body_exited" from="DetectionArea" to="." method="_on_detection_area_body_exited"]
+

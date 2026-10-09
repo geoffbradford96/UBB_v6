@@ -1,37 +1,71 @@
 extends Node
 
-# This script runs in the background at all times.
-# It remembers data as you move between menus and the arena.
-
 var current_mode = "LOCAL"
 var player_faction = "Dominion of Sol"
-var player_deck = [] # Will hold the 6 cards you select
+
+# Supports up to 6 local players
+var player_decks = {
+	"Player1": [],
+	"Guest1": [],
+	"Guest2": [],
+	"Guest3": [],
+	"Guest4": [],
+	"Guest5": []
+}
+var editing_profile = "Player1"
+
+var peer = ENetMultiplayerPeer.new()
+
+# Match Setup Options
+var ai_difficulty = "MEDIUM"
+var game_mode = "DESTROY_BASE"
+var map_selected = "Arena.tscn"
+var match_player_count = 2
+var sudden_death_timer = 600.0
 
 func _ready():
 	print("Global GameState is active!")
-	load_deck()
+	load_decks()
 	
-func save_deck():
-	var save_path = "user://local_deck.json"
-	if current_mode == "ONLINE" or current_mode == "ONLINE_HOST" or current_mode == "ONLINE_JOIN":
-		save_path = "user://online_deck.json"
-		
+func save_decks():
+	var save_path = "user://local_decks.json"
 	var file = FileAccess.open(save_path, FileAccess.WRITE)
 	if file:
-		var json = JSON.stringify(player_deck)
+		var json = JSON.stringify(player_decks)
 		file.store_string(json)
 		file.close()
 		
-func load_deck():
-	var load_path = "user://local_deck.json"
-	if current_mode == "ONLINE" or current_mode == "ONLINE_HOST" or current_mode == "ONLINE_JOIN":
-		load_path = "user://online_deck.json"
-		
+func load_decks():
+	var load_path = "user://local_decks.json"
 	if FileAccess.file_exists(load_path):
 		var file = FileAccess.open(load_path, FileAccess.READ)
 		var json = file.get_as_text()
 		file.close()
 		
 		var parsed = JSON.parse_string(json)
-		if typeof(parsed) == TYPE_ARRAY:
-			player_deck = parsed
+		if typeof(parsed) == TYPE_DICTIONARY:
+			for key in parsed.keys():
+				player_decks[key] = parsed[key]
+
+# Backwards compatibility for older scripts that used player_deck
+var player_deck:
+	get:
+		return player_decks["Player1"]
+	set(value):
+		player_decks["Player1"] = value
+
+func host_game():
+	var error = peer.create_server(8910, match_player_count) 
+	if error == OK:
+		multiplayer.multiplayer_peer = peer
+		print("Hosting game on port 8910")
+	else:
+		print("Failed to host game: ", error)
+
+func join_game(ip: String):
+	var error = peer.create_client(ip, 8910)
+	if error == OK:
+		multiplayer.multiplayer_peer = peer
+		print("Joining game at ", ip)
+	else:
+		print("Failed to join game: ", error)

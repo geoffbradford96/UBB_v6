@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3 uid="uid://cardui123"]
+[gd_scene load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://Scripts/CardUI.gd" id="1_script"]
 
@@ -16,6 +16,17 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.15, 0.15, 0.15, 1)
+
+[node name="CardArt" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = 10.0
+offset_top = 25.0
+offset_right = -10.0
+expand_mode = 1
+stretch_mode = 5
 
 [node name="Border" type="ReferenceRect" parent="."]
 layout_mode = 1
@@ -45,8 +56,8 @@ offset_left = -10.0
 offset_top = -10.0
 offset_right = 30.0
 offset_bottom = 30.0
-theme_override_colors/font_color = Color(0, 0, 0, 1)
 theme_override_font_sizes/font_size = 20
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 text = "3"
 horizontal_alignment = 1
 vertical_alignment = 1
@@ -82,13 +93,14 @@ offset_left = 5.0
 offset_top = 45.0
 offset_right = -5.0
 offset_bottom = -95.0
+grow_horizontal = 2
+grow_vertical = 2
 theme_override_font_sizes/font_size = 11
 text = "Description here..."
-autowrap_mode = 3
-clip_text = true
 horizontal_alignment = 1
 vertical_alignment = 1
 autowrap_mode = 2
+clip_text = true
 
 [node name="HPLabel" type="Label" parent="."]
 layout_mode = 0
@@ -106,5 +118,5 @@ offset_top = 190.0
 offset_right = 145.0
 offset_bottom = 215.0
 theme_override_font_sizes/font_size = 14
-text = "⚔️"
+text = "Melee"
 horizontal_alignment = 2

@@ -51,7 +51,12 @@ text = "War Games (Matchmaking)"
 [node name="AIVsAI" type="Button" parent="CenterContainer/VBoxContainer"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
-text = "Spectate (AI vs AI)"
+text = "Local Skirmish (Vs AI or Spectate)"
+
+[node name="Settings" type="Button" parent="CenterContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Settings"
 
 [node name="BackButton" type="Button" parent="."]
 layout_mode = 0
@@ -64,4 +69,6 @@ text = "<- Back"
 [connection signal="pressed" from="CenterContainer/VBoxContainer/DeckMaking" to="." method="_on_deck_making_pressed"]
 [connection signal="pressed" from="CenterContainer/VBoxContainer/WarGames" to="." method="_on_war_games_pressed"]
 [connection signal="pressed" from="CenterContainer/VBoxContainer/AIVsAI" to="." method="_on_ai_vs_ai_pressed"]
+[connection signal="pressed" from="CenterContainer/VBoxContainer/Settings" to="." method="_on_settings_pressed"]
 [connection signal="pressed" from="BackButton" to="." method="_on_back_pressed"]
+

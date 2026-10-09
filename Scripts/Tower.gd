@@ -1,20 +1,27 @@
 extends StaticBody3D
 
+var faction: String = "Dominion"
+
+@export var unit_attribute: String = "Mechanical"
+
 # This allows you to drag and drop the Projectile.tscn into the inspector
 @export var projectile_scene: PackedScene 
-@export var team: String = "Team2"
+@export var team: String = "SideB"
 
 var current_target: Node3D = null
 var fire_rate = 1.0 # shoots once every second
 var fire_timer = 0.0
-var enemy_team: String = "Team1"
+var enemy_team: String = "SideA"
 
 func _ready():
+	add_to_group("Targetable")
+	if is_in_group("SideA"): remove_from_group("SideA")
+	if is_in_group("SideB"): remove_from_group("SideB")
 	add_to_group(team)
-	if team == "Team1":
-		enemy_team = "Team2"
+	if team == "SideA":
+		enemy_team = "SideB"
 	else:
-		enemy_team = "Team1"
+		enemy_team = "SideA"
 		
 	# Connect death signal to update the Comeback Mechanic
 	var health = get_node_or_null("HealthComponent")
@@ -23,7 +30,7 @@ func _ready():
 
 func _on_tower_destroyed():
 	# If this is a Player tower, tell the ArenaManager to speed up Requisition!
-	if team == "Team1":
+	if team == "SideA":
 		var manager = get_tree().current_scene
 		if manager.has_method("tower_lost"):
 			manager.tower_lost()
@@ -65,7 +72,7 @@ func shoot_at_target():
 			mesh.set_surface_override_material(0, mat)
 
 func _on_detection_area_body_entered(body):
-	if body.is_in_group(enemy_team):
+	if body.is_in_group("Targetable") and not body.is_in_group(team):
 		if not targets_in_range.has(body):
 			targets_in_range.append(body)
 
@@ -74,3 +81,7 @@ func _on_detection_area_body_exited(body):
 		targets_in_range.erase(body)
 	if body == current_target:
 		current_target = null
+
+
+
+

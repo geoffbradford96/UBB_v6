@@ -1,4 +1,6 @@
-extends CharacterBody3D
+﻿extends CharacterBody3D
+
+@export var unit_attribute: String = "Mechanical"
 
 @export var damage: float = 5.0
 @export var attack_range: float = 10.0
@@ -9,8 +11,10 @@ var attack_timer: float = 0.0
 
 var projectile_scene = preload("res://Scenes/Projectile.tscn")
 
+func _ready():
+	add_to_group("Targetable")
+
 func _physics_process(delta):
-	# Structures don't walk, but they do fall to the floor!
 	if not is_on_floor():
 		velocity.y -= 9.8 * delta
 	else:
@@ -20,7 +24,14 @@ func _physics_process(delta):
 	velocity.z = 0
 	move_and_slide()
 	
-	if current_target == null or not is_instance_valid(current_target):
+	if not "target_recheck_timer" in self:
+		set_meta("target_recheck", 1.0)
+	var __target_timer = get_meta("target_recheck") if has_meta("target_recheck") else 1.0
+	__target_timer -= 0.016
+	set_meta("target_recheck", __target_timer)
+	
+	if current_target == null or not is_instance_valid(current_target) or __target_timer <= 0.0:
+		if __target_timer <= 0.0: set_meta("target_recheck", 1.0)
 		find_new_target()
 		
 	if current_target != null:
@@ -48,7 +59,6 @@ func shoot():
 		proj.set("damage", damage)
 		proj.set("speed", 15.0)
 		
-		# Visual Polish: Command Bays shoot purple energy!
 		var mesh = proj.get_node_or_null("MeshInstance3D")
 		if mesh and mesh.mesh:
 			var mat = StandardMaterial3D.new()
@@ -60,8 +70,13 @@ func shoot():
 
 func find_new_target():
 	current_target = null
-	var enemy_group = "Team2" if self.is_in_group("Team1") else "Team1"
-	var enemies = get_tree().get_nodes_in_group(enemy_group)
+	var my_team = ""
+	for g in get_groups():
+		if g.begins_with("Side"): my_team = g
+	var enemies = []
+	for node in get_tree().get_nodes_in_group("Targetable"):
+		if not node.is_in_group(my_team):
+			enemies.append(node)
 	var closest = 99999.0
 	for e in enemies:
 		if is_instance_valid(e):

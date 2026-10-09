@@ -1,16 +1,14 @@
-﻿[gd_resource type="Resource" script_class="CardData" load_steps=3 format=3 uid="uid://cardtank1234"]
+[gd_resource type="Resource" script_class="CardData" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://Scripts/CardData.gd" id="1_script"]
-[ext_resource type="PackedScene" uid="uid://tank1234abcd" path="res://Scenes/Units/Tank.tscn" id="2_scene"]
+[ext_resource type="PackedScene" path="res://Scenes/Units/HeavyTank.tscn" id="2_xe7p3"]
 
 [resource]
 script = ExtResource("1_script")
 card_name = "HeavyTank"
 card_type = "Vehicle"
-description = "A heavily armored ground vehicle with a massive cannon."
 cost = 6.0
-is_spell = false
-spawn_count = 1
 max_hp = 600.0
 is_melee = false
-unit_scene = ExtResource("2_scene")
+description = "A heavily armored ground vehicle with a massive cannon."
+unit_scene = ExtResource("2_xe7p3")

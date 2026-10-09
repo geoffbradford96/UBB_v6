@@ -7,7 +7,7 @@
 
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_hero"]
 
-[node name="Hero" type="CharacterBody3D" groups=["Team1"]]
+[node name="Hero" type="CharacterBody3D" ]
 script = ExtResource("1_hero")
 
 [node name="HealthComponent" type="Node" parent="."]
@@ -19,3 +19,4 @@ shape = SubResource("CapsuleShape3D_hero")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
 mesh = SubResource("CapsuleMesh_hero")
+
