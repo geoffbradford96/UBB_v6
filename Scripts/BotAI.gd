@@ -276,15 +276,37 @@ func calculate_optimal_spawn(card: CardData, threat_info: Dictionary):
 		if threat_info.threat_score > 10.0 and threat_info.hostiles_near_endangered.size() > 0:
 			var best_spell_target = null
 			var max_cluster = -1
+			var cell_size = 10.0
+			var grid = {}
+
 			for h in threat_info.hostiles_near_endangered:
 				if not is_instance_valid(h): continue
+				var pos = h.global_position
+				var cx = int(floor(pos.x / cell_size))
+				var cz = int(floor(pos.z / cell_size))
+				var key = Vector2(cx, cz)
+				if not grid.has(key):
+					grid[key] = []
+				grid[key].append(h)
+
+			for h in threat_info.hostiles_near_endangered:
+				if not is_instance_valid(h): continue
+				var pos = h.global_position
+				var cx = int(floor(pos.x / cell_size))
+				var cz = int(floor(pos.z / cell_size))
 				var count = 0
-				for other in threat_info.hostiles_near_endangered:
-					if is_instance_valid(other) and h.global_position.distance_to(other.global_position) < 10.0:
-						count += 1
+
+				for dx in [-1, 0, 1]:
+					for dz in [-1, 0, 1]:
+						var nkey = Vector2(cx + dx, cz + dz)
+						if grid.has(nkey):
+							for other in grid[nkey]:
+								if is_instance_valid(other) and pos.distance_to(other.global_position) < 10.0:
+									count += 1
 				if count > max_cluster:
 					max_cluster = count
 					best_spell_target = h
+
 			if best_spell_target and is_instance_valid(best_spell_target):
 				return best_spell_target.global_position
 			
@@ -300,14 +322,35 @@ func calculate_optimal_spawn(card: CardData, threat_info: Dictionary):
 		if all_targets.size() > 0:
 			var best_t = all_targets[0]
 			var max_c = 0
+			var cell_size = 10.0
+			var grid = {}
+
 			for u in all_targets:
+				var pos = u.global_position
+				var cx = int(floor(pos.x / cell_size))
+				var cz = int(floor(pos.z / cell_size))
+				var key = Vector2(cx, cz)
+				if not grid.has(key):
+					grid[key] = []
+				grid[key].append(u)
+
+			for u in all_targets:
+				var pos = u.global_position
+				var cx = int(floor(pos.x / cell_size))
+				var cz = int(floor(pos.z / cell_size))
 				var c = 0
-				for other in all_targets:
-					if u.global_position.distance_to(other.global_position) < 10.0:
-						c += 1
+
+				for dx in [-1, 0, 1]:
+					for dz in [-1, 0, 1]:
+						var nkey = Vector2(cx + dx, cz + dz)
+						if grid.has(nkey):
+							for other in grid[nkey]:
+								if pos.distance_to(other.global_position) < 10.0:
+									c += 1
 				if c > max_c:
 					max_c = c
 					best_t = u
+
 			if best_t and is_instance_valid(best_t):
 				return best_t.global_position
 		return null
