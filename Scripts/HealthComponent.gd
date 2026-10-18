@@ -66,6 +66,8 @@ func _get_game_state():
 
 func _ready():
 	get_parent().add_to_group("Targetable")
+	if "Base" in get_parent().name:
+		get_parent().add_to_group("Base")
 	current_health = max_health
 	
 	# Create Health Bar UI dynamically
@@ -326,8 +328,8 @@ func die():
 			
 			# Collect all remaining teams that have at least one Base alive
 			var teams_alive = []
-			for b in get_tree().get_nodes_in_group("Targetable"):
-				if "Base" in b.name and b != get_parent() and is_instance_valid(b):
+			for b in get_tree().get_nodes_in_group("Base"):
+				if b != get_parent() and is_instance_valid(b):
 					for g in b.get_groups():
 						if g.begins_with("Side") and not teams_alive.has(g):
 							teams_alive.append(g)
