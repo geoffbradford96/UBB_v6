@@ -218,7 +218,6 @@ func setup_match():
             bot.think_interval = 0.7
         
         add_child(bot)
-        print("Spawned BotAI for ", bot.my_team, " [Slot ", i, "] Archetype: ", bot.archetype, " with profile ", bot.profile)
 
     var kz = get_node_or_null("KotH_Zone")
     if kz:
