@@ -37,8 +37,6 @@ class LocalPlayerState:
 var players: Array = []
 
 func _ready():
-    print("Initializing Arena in Mode: ", GameState.current_mode)
-
     if "sudden_death_timer" in GameState:
         match_timer = float(GameState.sudden_death_timer)
 
