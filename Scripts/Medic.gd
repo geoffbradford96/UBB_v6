@@ -118,7 +118,6 @@ func _physics_process(delta):
 				if target_health:
 					# Only pop a heal if they actually need it!
 					if target_health.current_health < target_health.max_health:
-						print("Medic heals ", current_target.name, " for ", heal_amount)
 						target_health.heal(heal_amount)
 						var ap_action = get_node_or_null("AnimationPlayer")
 						if ap_action and ap_action.has_animation("heal"):
