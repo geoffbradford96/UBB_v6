@@ -519,7 +519,6 @@ func attempt_to_play_card(p: LocalPlayerState, data: Resource, target_position: 
     if p.team == "Spectator":
         return false
     if p.req < data.cost:
-        print(p.team, " Not enough Requisition! Need ", data.cost, " but have ", snapped(p.req, 0.1))
         if p.ui and p.ui.has_method("show_placement_warning"):
             p.ui.show_placement_warning("Need " + str(data.cost) + " Requisition (Have " + str(floor(p.req)) + ")")
         return false
