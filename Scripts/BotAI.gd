@@ -33,8 +33,7 @@ func _ready():
 		print(my_team + " BotAI initialized with deck from profile: " + profile + " (Archetype: " + archetype + ")")
 	else:
 		deck = generate_themed_deck(archetype)
-		print(my_team + " BotAI generated deck for archetype: " + archetype + " -> " + str(deck))
-		
+
 	deck.shuffle()
 	# Draw starting hand of 3 cards (identical to player hand in HandContainer)
 	draw_to_hand()
