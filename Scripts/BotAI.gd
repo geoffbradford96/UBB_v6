@@ -383,8 +383,8 @@ func calculate_optimal_spawn(card: CardData, threat_info: Dictionary):
 			if ("Reach" in card.card_name or archetype == "The Reach"):
 				# Reach Clustering Synergy: deploy within 2.5-4.5m of friendly Reach allies to trigger +15% to +75% synergy buffs
 				var friendly_reach = []
-				for ally in get_tree().get_nodes_in_group(my_team):
-					if is_instance_valid(ally) and ally is Node3D and "Reach" in ally.name:
+				for ally in get_tree().get_nodes_in_group("Reach"):
+					if ally.is_in_group(my_team) and is_instance_valid(ally) and ally is Node3D:
 						var ahc = ally.get_node_or_null("HealthComponent")
 						if ahc and ahc.is_dead: continue
 						if ally.global_position.distance_to(spawn_anchor.global_position) <= 24.0:

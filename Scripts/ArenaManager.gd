@@ -605,6 +605,8 @@ func sync_spawn_card(card_path: String, pos: Vector3, team: String, unique_id: S
                 
         if "card_type" in data and data.card_type == "Commander":
             unit.add_to_group("CommanderUnit")
+        if "Reach" in unit.name:
+            unit.add_to_group("Reach")
         if "CommandBay" in unit.name:
             var faction = _get_team_faction(team)
             _build_structure_mesh(unit, faction, false)
