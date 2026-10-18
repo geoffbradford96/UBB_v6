@@ -95,7 +95,10 @@ func assess_threats() -> Dictionary:
 	
 	var my_structures = []
 	var my_base: Node3D = null
+	var cached_allies = []
 	for s in get_tree().get_nodes_in_group(my_team):
+		if is_instance_valid(s) and s is Node3D:
+			cached_allies.append(s)
 		if "Base" in s.name or "Tower" in s.name or "CommandBay" in s.name:
 			my_structures.append(s)
 			if "Base" in s.name:
@@ -111,11 +114,11 @@ func assess_threats() -> Dictionary:
 			# If target is stealthed in tall grass, AI cannot target it unless an ally is within 4.5m
 			if GameState.is_unit_stealthed_from(node, null):
 				var spotted = false
-				for ally in get_tree().get_nodes_in_group(my_team):
-					if is_instance_valid(ally) and ally is Node3D:
-						if ally.global_position.distance_to(node.global_position) <= 4.5:
-							spotted = true
-							break
+				var node_pos = node.global_position
+				for ally in cached_allies:
+					if ally.global_position.distance_squared_to(node_pos) <= 20.25:
+						spotted = true
+						break
 				if not spotted:
 					continue # Hidden in grass from bot!
 					
