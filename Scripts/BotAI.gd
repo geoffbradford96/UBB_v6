@@ -30,10 +30,8 @@ func _ready():
 	if profile != "" and GameState.player_decks.has(profile) and GameState.player_decks[profile].size() > 0:
 		deck = GameState.player_decks[profile].duplicate()
 		archetype = _detect_faction_from_deck(deck)
-		print(my_team + " BotAI initialized with deck from profile: " + profile + " (Archetype: " + archetype + ")")
 	else:
 		deck = generate_themed_deck(archetype)
-		print(my_team + " BotAI generated deck for archetype: " + archetype + " -> " + str(deck))
 		
 	deck.shuffle()
 	# Draw starting hand of 3 cards (identical to player hand in HandContainer)
