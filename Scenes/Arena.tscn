@@ -1,7 +1,7 @@
 [gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://Scripts/ArenaManager.gd" id="1_arena_script"]
-[ext_resource type="Script" path="res://Scripts/InGameUI.gd" id="3_bugre"]
+[ext_resource type="Script" path="res://Scripts/InGameUI.gd" id="3_ingameui"]
 [ext_resource type="PackedScene" path="res://Scenes/InGameUI.tscn" id="3_ui_scene"]
 [ext_resource type="Script" path="res://Scripts/ArenaCamera.gd" id="4_cam"]
 [ext_resource type="PackedScene" path="res://Scenes/Tower.tscn" id="5_tower"]
@@ -75,7 +75,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-script = ExtResource("3_bugre")
+script = ExtResource("3_ingameui")
 
 [node name="Ground" type="StaticBody3D" parent="."]
 

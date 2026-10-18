@@ -77,7 +77,12 @@ func _physics_process(delta):
 	var is_moving = false
 	if is_instance_valid(current_target):
 		var dist = global_position.distance_to(current_target.global_position)
-		if dist > attack_range:
+		var effective_range = attack_range
+		if "Base" in current_target.name:
+			effective_range += 5.5
+		elif "Tower" in current_target.name or "CommandBay" in current_target.name:
+			effective_range += 2.5
+		if dist > effective_range:
 			# Move towards target, flanking along perpendicular line
 			var to_target = current_target.global_position - global_position
 			to_target.y = 0
