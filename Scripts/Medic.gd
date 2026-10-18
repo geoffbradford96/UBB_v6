@@ -240,8 +240,8 @@ func _apply_reach_synergy():
 	if my_team == "":
 		return
 	var reach_count := 0
-	for node in get_tree().get_nodes_in_group(my_team):
-		if node != self and node is Node3D and "Reach" in node.name and global_position.distance_to(node.global_position) < 6.0:
+	for node in get_tree().get_nodes_in_group("Reach"):
+		if node != self and node is Node3D and node.is_in_group(my_team) and global_position.distance_to(node.global_position) < 6.0:
 			reach_count += 1
 	var synergy: float = min(reach_count, 5) * 0.15
 	if "speed" in self: set("speed", _reach_base_speed * (1.0 + synergy))
