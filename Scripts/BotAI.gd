@@ -482,8 +482,6 @@ func play_card(card: CardData, target_position: Vector3):
 	var file_name = card.resource_path.get_file().trim_suffix(".tres").trim_suffix(".remap")
 	discard.append(file_name)
 	
-	print(my_team, " AI spent ", card.cost, " energy on ", card.card_name, " | Energy remaining: ", snapped(current_requisition, 0.1))
-	
 	if am and am.has_method("sync_spawn_card"):
 		if multiplayer.has_multiplayer_peer() and multiplayer.multiplayer_peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED:
 			am.rpc("sync_spawn_card", card.resource_path, target_position, my_team, str(randi()))
