@@ -473,7 +473,6 @@ func play_card(card: CardData, target_position: Vector3):
 	var am = get_tree().current_scene
 	if am and am.has_method("can_deploy_at"):
 		if not am.can_deploy_at(my_team, target_position, card.is_spell):
-			print(my_team, " AI cannot deploy outside friendly deployment zone at: ", target_position)
 			return
 
 	current_requisition -= card.cost
