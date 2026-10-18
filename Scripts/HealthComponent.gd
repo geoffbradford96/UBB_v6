@@ -310,7 +310,6 @@ func die():
 				var hp = a.get_node_or_null("HealthComponent")
 				if hp and hp.has_method("trigger_scrap_heal"): hp.trigger_scrap_heal()
 
-	#print(get_parent().name, " was destroyed!")
 	emit_signal("died")
 	
 	if "Base" in get_parent().name:
