@@ -24,7 +24,13 @@ func _ready():
 	for res in resolutions:
 		resolution_option.add_item(str(res.x) + " x " + str(res.y))
 		
-	# Set current resolution in dropdown
+	# Populate Corpse Dropdowns
+	for lbl in corpse_limit_labels:
+		corpse_limit_dropdown.add_item(lbl)
+	for lbl in corpse_duration_labels:
+		corpse_duration_dropdown.add_item(lbl)
+
+	# Set current resolution default in dropdown
 	var current_size = DisplayServer.window_get_size()
 	var closest_idx = 0
 	var min_diff = 999999
@@ -35,19 +41,13 @@ func _ready():
 			closest_idx = i
 	resolution_option.select(closest_idx)
 	
-	# Set current fullscreen state
+	# Set current fullscreen state default
 	fullscreen_check.button_pressed = DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 	
-	# Set current volume
+	# Set current volume default
 	var db = AudioServer.get_bus_volume_db(0) # Master bus
 	volume_slider.value = db_to_linear(db)
 	
-	# Populate Corpse Dropdowns
-	for lbl in corpse_limit_labels:
-		corpse_limit_dropdown.add_item(lbl)
-	for lbl in corpse_duration_labels:
-		corpse_duration_dropdown.add_item(lbl)
-		
 	var lim_idx = corpse_limits.find(GameState.corpse_max_count)
 	corpse_limit_dropdown.select(lim_idx if lim_idx != -1 else 1)
 	

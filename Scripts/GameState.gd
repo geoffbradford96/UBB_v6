@@ -43,6 +43,17 @@ func load_settings():
 		corpse_max_count = cfg.get_value("gameplay", "corpse_max_count", 30)
 		corpse_duration = cfg.get_value("gameplay", "corpse_duration", 15.0)
 
+		var master_vol = cfg.get_value("audio", "master_volume", 1.0)
+		var db = linear_to_db(master_vol)
+		AudioServer.set_bus_volume_db(0, db)
+		AudioServer.set_bus_mute(0, master_vol <= 0.01)
+
+		var fs = cfg.get_value("video", "fullscreen", false)
+		if fs:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		else:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+
 func register_corpse(corpse_node: Node3D):
 	if not is_instance_valid(corpse_node): return
 	active_corpses.append(corpse_node)

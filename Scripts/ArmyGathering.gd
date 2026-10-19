@@ -37,9 +37,11 @@ func load_all_cards():
 			file_name = dir.get_next()
 
 func build_ui():
-	# Top Bar for Profile Selection
+	# Top Bar for Profile Selection placed at absolute top right/center without interfering with MainBody layout
 	var top_bar = HBoxContainer.new()
 	top_bar.custom_minimum_size = Vector2(0, 40)
+	top_bar.position = Vector2(150, 40)
+
 	var label = Label.new()
 	label.text = "Editing Profile: "
 	top_bar.add_child(label)
@@ -61,9 +63,7 @@ func build_ui():
 	profile_dropdown.connect("item_selected", Callable(self, "_on_profile_selected"))
 	top_bar.add_child(profile_dropdown)
 	
-	# Insert top bar at the very top of the scene (before MainBody if possible, or inside it)
 	add_child(top_bar)
-	move_child(top_bar, 0)
 	
 	var left_panel = PanelContainer.new()
 	left_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL

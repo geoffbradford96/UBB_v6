@@ -219,11 +219,21 @@ func _on_pause_vol_changed(val: float):
 	AudioServer.set_bus_volume_db(0, db)
 	AudioServer.set_bus_mute(0, val <= 0.01)
 
+	var cfg = ConfigFile.new()
+	cfg.load("user://settings.cfg")
+	cfg.set_value("audio", "master_volume", val)
+	cfg.save("user://settings.cfg")
+
 func _on_pause_fs_toggled(toggled_on: bool):
 	if toggled_on:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 	else:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+
+	var cfg = ConfigFile.new()
+	cfg.load("user://settings.cfg")
+	cfg.set_value("video", "fullscreen", toggled_on)
+	cfg.save("user://settings.cfg")
 
 func _on_confirm_surrender():
 	if pause_overlay: pause_overlay.visible = false
