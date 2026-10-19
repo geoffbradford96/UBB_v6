@@ -104,31 +104,37 @@ func _physics_process(delta):
 						velocity += lane_pull * speed * pull_strength
 			is_moving = true
 		else:
-			velocity.x = move_toward(velocity.x, 0, speed)
-			velocity.z = move_toward(velocity.z, 0, speed)
+			var friendly_group = ""
+			for g in get_groups():
+				if g.begins_with("Side"): friendly_group = g
 			
-			action_timer += delta
-			if action_timer >= repair_rate:
-				action_timer = 0.0
-				
-				var friendly_group = ""
-				for g in get_groups():
-					if g.begins_with("Side"): friendly_group = g
-				
-				# Are we repairing an ally or attacking an enemy?
-				if current_target.is_in_group(friendly_group):
-					var target_health = current_target.get_node_or_null("HealthComponent")
-					if target_health:
-						if target_health.current_health < target_health.max_health:
-							target_health.heal(repair_amount)
+			if current_target.is_in_group(friendly_group):
+				var target_health = current_target.get_node_or_null("HealthComponent")
+				var needs_repair = target_health and target_health.current_health < target_health.max_health
+				if needs_repair:
+					velocity.x = move_toward(velocity.x, 0, speed)
+					velocity.z = move_toward(velocity.z, 0, speed)
+					action_timer += delta
+					if action_timer >= repair_rate:
+						action_timer = 0.0
+						target_health.heal(repair_amount)
 						var ap_action = get_node_or_null("AnimationPlayer")
 						if ap_action and ap_action.has_animation("repair"):
 							ap_action.play("repair")
-						
-						if target_health.current_health >= target_health.max_health:
-							current_target = null
 				else:
-					# Attack!
+					var next_path_pos = current_target.global_position
+					var desired_dir = (next_path_pos - global_position)
+					desired_dir.y = 0
+					if desired_dir.length_squared() > 0.001: desired_dir = desired_dir.normalized()
+					velocity.x = desired_dir.x * speed * 0.8
+					velocity.z = desired_dir.z * speed * 0.8
+					is_moving = true
+			else:
+				velocity.x = move_toward(velocity.x, 0, speed)
+				velocity.z = move_toward(velocity.z, 0, speed)
+				action_timer += delta
+				if action_timer >= repair_rate:
+					action_timer = 0.0
 					var target_health = current_target.get_node_or_null("HealthComponent")
 					if target_health:
 						target_health.take_damage(10.0)

@@ -107,26 +107,28 @@ func _physics_process(delta):
 						velocity += lane_pull * speed * pull_strength
 			is_moving = true
 		else:
-			# Stop and Heal
-			velocity.x = move_toward(velocity.x, 0, speed)
-			velocity.z = move_toward(velocity.z, 0, speed)
+			var target_health = current_target.get_node_or_null("HealthComponent")
+			var needs_heal = target_health and target_health.current_health < target_health.max_health
 			
-			action_timer += delta
-			if action_timer >= heal_rate:
-				action_timer = 0.0
-				var target_health = current_target.get_node_or_null("HealthComponent")
-				if target_health:
-					# Only pop a heal if they actually need it!
-					if target_health.current_health < target_health.max_health:
-						print("Medic heals ", current_target.name, " for ", heal_amount)
-						target_health.heal(heal_amount)
-						var ap_action = get_node_or_null("AnimationPlayer")
-						if ap_action and ap_action.has_animation("heal"):
-							ap_action.play("heal")
-					
-					# If they are fully healed (or already were), re-evaluate targets next frame
-					if target_health.current_health >= target_health.max_health:
-						current_target = null
+			if needs_heal:
+				velocity.x = move_toward(velocity.x, 0, speed)
+				velocity.z = move_toward(velocity.z, 0, speed)
+				action_timer += delta
+				if action_timer >= heal_rate:
+					action_timer = 0.0
+					target_health.heal(heal_amount)
+					var ap_action = get_node_or_null("AnimationPlayer")
+					if ap_action and ap_action.has_animation("heal"):
+						ap_action.play("heal")
+			else:
+				# Target is full health; keep moving to stay close without stuttering
+				var next_path_pos = current_target.global_position
+				var desired_dir = (next_path_pos - global_position)
+				desired_dir.y = 0
+				if desired_dir.length_squared() > 0.001: desired_dir = desired_dir.normalized()
+				velocity.x = desired_dir.x * speed * 0.8
+				velocity.z = desired_dir.z * speed * 0.8
+				is_moving = true
 
 	else:
 		velocity.x = move_toward(velocity.x, 0, speed)

@@ -225,20 +225,31 @@ func evaluate_moves():
 				return
 			# Void swarms cheap units first
 			valid_hand.sort_custom(func(a, b): return a.cost < b.cost)
-		elif archetype == "Pirates":
+		elif archetype in ["Pirates", "Scrap"]:
 			# Pirates love sudden 2-card pushes (bank to 5.5+)
 			if difficulty == "HARD" and threat_info.threat_score < 10.0 and current_requisition < 5.5:
 				return
 			valid_hand.sort_custom(func(a, b): return a.cost > b.cost)
-		elif archetype == "Rimworlders":
+		elif archetype in ["Rimworlders", "Rimworld"]:
 			# Rimworlders prioritize beast tanks and flyers first
 			if difficulty == "HARD" and threat_info.threat_score < 10.0 and current_requisition < 5.0:
 				return
 			valid_hand.sort_custom(func(a, b):
-				var a_is_beast = "Leviathan" in a.card_name or "Monstrous" in a.card_name or "Mutant" in a.card_name or "Beetle" in a.card_name
-				var b_is_beast = "Leviathan" in b.card_name or "Monstrous" in b.card_name or "Mutant" in b.card_name or "Beetle" in b.card_name
+				var a_is_beast = "Leviathan" in a.card_name or "Monstrous" in a.card_name or "Mutant" in a.card_name or "Beetle" in a.card_name or "Jellyfish" in a.card_name or "Octopus" in a.card_name or "Squid" in a.card_name
+				var b_is_beast = "Leviathan" in b.card_name or "Monstrous" in b.card_name or "Mutant" in b.card_name or "Beetle" in b.card_name or "Jellyfish" in b.card_name or "Octopus" in b.card_name or "Squid" in b.card_name
 				if a_is_beast and not b_is_beast: return true
 				if not a_is_beast and b_is_beast: return false
+				return a.cost > b.cost
+			)
+		elif archetype in ["The Reach", "Reach"]:
+			# Reach clustering synergy
+			if difficulty == "HARD" and threat_info.threat_score < 10.0 and current_requisition < 5.0:
+				return
+			valid_hand.sort_custom(func(a, b):
+				var a_is_reach = "Reach" in a.card_name
+				var b_is_reach = "Reach" in b.card_name
+				if a_is_reach and not b_is_reach: return true
+				if not a_is_reach and b_is_reach: return false
 				return a.cost > b.cost
 			)
 		elif archetype == "Dominion":
@@ -473,8 +484,17 @@ func play_card(card: CardData, target_position: Vector3):
 	var am = get_tree().current_scene
 	if am and am.has_method("can_deploy_at"):
 		if not am.can_deploy_at(my_team, target_position, card.is_spell):
-			print(my_team, " AI cannot deploy outside friendly deployment zone at: ", target_position)
-			return
+			var found_fallback = false
+			for s in get_tree().get_nodes_in_group(my_team):
+				if ("Base" in s.name or "Tower" in s.name or "CommandBay" in s.name) and is_instance_valid(s):
+					var try_pos = s.global_position + Vector3(randf_range(-3.0, 3.0), 0, randf_range(-3.0, 3.0))
+					if am.can_deploy_at(my_team, try_pos, card.is_spell):
+						target_position = try_pos
+						found_fallback = true
+						break
+			if not found_fallback and not card.is_spell:
+				print(my_team, " AI cannot deploy outside friendly deployment zone at: ", target_position)
+				return
 
 	current_requisition -= card.cost
 	
