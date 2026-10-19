@@ -180,9 +180,13 @@ func find_new_target():
 	for g in get_groups():
 		if g.begins_with("Side"): my_team = g
 	var enemies = []
-	if my_team != "":
-		for node in get_tree().get_nodes_in_group("Targetable"):
-			if not node.is_in_group(my_team) and is_instance_valid(node) and node != self:
+	for node in get_tree().get_nodes_in_group("Targetable"):
+		if node != self and is_instance_valid(node):
+			if (node.is_in_group("NeutralCreature") or node.is_in_group("NeutralStructure")) and global_position.distance_to(node.global_position) > 7.5:
+				continue
+			if my_team != "" and not node.is_in_group(my_team):
+				enemies.append(node)
+			elif my_team == "" and not node.is_in_group("Beast"):
 				enemies.append(node)
 	var closest_dist = 99999.0
 	var hero_target = null

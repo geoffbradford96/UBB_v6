@@ -56,7 +56,7 @@ func _process(delta):
 	
 	if is_instance_valid(current_target):
 		var curr_hc = current_target.get_node_or_null("HealthComponent")
-		if (curr_hc and curr_hc.is_dead) or not current_target.is_in_group("Targetable"):
+		if (curr_hc and curr_hc.is_dead) or not current_target.is_in_group("Targetable") or GameState.is_unit_stealthed_from(current_target, self):
 			targets_in_range.erase(current_target)
 			current_target = null
 	else:

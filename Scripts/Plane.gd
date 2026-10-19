@@ -38,7 +38,9 @@ func _physics_process(delta):
 		
 	var is_moving = false
 	if is_instance_valid(current_target):
-		var dist = global_position.distance_to(current_target.global_position)
+		var my_flat = Vector2(global_position.x, global_position.z)
+		var target_flat = Vector2(current_target.global_position.x, current_target.global_position.z)
+		var dist = my_flat.distance_to(target_flat)
 		var effective_range = attack_range
 		if "Base" in current_target.name:
 			effective_range += 5.5
@@ -48,10 +50,10 @@ func _physics_process(delta):
 		if dist > effective_range:
 			# Move towards target
 			var next_path_pos = current_target.global_position
-			# Ignore Y direction changes for flying!
 			next_path_pos.y = global_position.y
-			var new_velocity = global_position.direction_to(next_path_pos) * speed
-			velocity = new_velocity
+			var move_dir = (next_path_pos - global_position).normalized()
+			velocity.x = move_dir.x * speed
+			velocity.z = move_dir.z * speed
 			is_moving = true
 		else:
 			velocity.x = move_toward(velocity.x, 0, speed)
@@ -130,9 +132,11 @@ func find_new_target():
 	for g in get_groups():
 		if g.begins_with("Side"): my_team = g
 	var enemies = []
-	if my_team != "":
-		for node in get_tree().get_nodes_in_group("Targetable"):
-			if not node.is_in_group(my_team) and is_instance_valid(node) and node != self:
+	for node in get_tree().get_nodes_in_group("Targetable"):
+		if node != self and is_instance_valid(node):
+			if my_team != "" and not node.is_in_group(my_team):
+				enemies.append(node)
+			elif my_team == "" and not node.is_in_group("Beast"):
 				enemies.append(node)
 	var closest_dist = 99999.0
 	for e in enemies:

@@ -371,7 +371,7 @@ func _evaluate_targeting():
 			current_target = null
 				
 	if current_target == null:
-		var closest_dist = leash_radius
+		var closest_dist = 99999.0
 		var best_target = null
 		
 		var my_group = "Scorpion" if creature_type == "Scorpion" else "SwarmAnt"
@@ -387,8 +387,9 @@ func _evaluate_targeting():
 				continue
 				
 			var dist_from_nest = home_position.distance_to(node.global_position)
-			if dist_from_nest <= leash_radius and dist_from_nest < closest_dist:
-				closest_dist = dist_from_nest
+			var dist_from_self = global_position.distance_to(node.global_position)
+			if dist_from_nest <= leash_radius and dist_from_self < closest_dist:
+				closest_dist = dist_from_self
 				best_target = node
 				
 		current_target = best_target
