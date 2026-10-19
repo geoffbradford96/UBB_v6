@@ -44,13 +44,46 @@ func _ready():
 	timer_option.add_item("55 Minutes")  # 11
 	timer_option.add_item("60 Minutes")  # 12
 	timer_option.select(2) # Default 10 min
-	_update_players_dropdown(0)
+	# Sync dropdowns with GameState
+	if GameState.current_mode == "AI_VS_AI":
+		role_option.select(1)
+	else:
+		role_option.select(0)
+
+	var initial_map_idx = 0
+	if GameState.map_selected == "Arena_4P.tscn":
+		initial_map_idx = 1
+	elif GameState.map_selected == "Arena_6P.tscn":
+		initial_map_idx = 2
+	map_option.select(initial_map_idx)
+
+	if GameState.map_biome == "SUNNY_PLAINS":
+		biome_option.select(0)
+	elif GameState.map_biome == "SCORCHING_DUNES":
+		biome_option.select(1)
+	else:
+		biome_option.select(2)
+
+	if GameState.game_mode == "KOTH":
+		mode_option.select(1)
+	else:
+		mode_option.select(0)
+
+	if GameState.ai_difficulty == "EASY":
+		diff_option.select(0)
+	elif GameState.ai_difficulty == "HARD":
+		diff_option.select(2)
+	else:
+		diff_option.select(1)
+
+	var time_inv = {150.0: 0, 300.0: 1, 600.0: 2, 900.0: 3, 1200.0: 4, 1500.0: 5, 1800.0: 6, 2100.0: 7, 2400.0: 8, 2700.0: 9, 3000.0: 10, 3300.0: 11, 3600.0: 12}
+	timer_option.select(time_inv.get(GameState.sudden_death_timer, 2))
 	
-	GameState.ai_difficulty = "MEDIUM"
-	GameState.game_mode = "DESTROY_BASE"
-	GameState.map_selected = "Arena.tscn"
-	GameState.match_player_count = 2
-	GameState.sudden_death_timer = 600.0
+	_update_players_dropdown(initial_map_idx)
+	if initial_map_idx == 1:
+		var p_idx = max(0, GameState.match_player_count - 2)
+		if p_idx < players_option.item_count:
+			players_option.select(p_idx)
 	
 func _update_players_dropdown(map_index: int):
 	players_option.clear()

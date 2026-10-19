@@ -103,6 +103,8 @@ func _on_local_4p_pressed():
 
 func _on_back_pressed():
 	GameState.disconnect_multiplayer()
+	if status_label:
+		status_label.text = ""
 	get_tree().change_scene_to_file("res://Scenes/ModeHub.tscn")
 
 func _on_ip_input_text_submitted(_new_text: String):
