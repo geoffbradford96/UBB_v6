@@ -108,10 +108,10 @@ func _physics_process(delta):
 	var horiz_vel = Vector3(velocity.x, 0, velocity.z)
 	var anim_mesh = get_node_or_null("MeshInstance3D")
 	if not anim_mesh: anim_mesh = get_node_or_null("VisualPivot")
-	if horiz_vel.length() > 0.1:
+	if Vector2(horiz_vel.x, horiz_vel.z).length_squared() > 0.001:
 		var look_target = global_position + horiz_vel
-		if global_position.distance_to(look_target) > 0.1:
-			look_at(look_target, Vector3.UP)
+		look_target.y = global_position.y
+		look_at(look_target, Vector3.UP)
 		if anim_mesh:
 			var t = Time.get_ticks_msec() / 1000.0 * speed * 2.0
 			anim_mesh.rotation.z = sin(t) * 0.1
@@ -120,7 +120,7 @@ func _physics_process(delta):
 		if current_target != null and is_instance_valid(current_target):
 			var look_target = current_target.global_position
 			look_target.y = global_position.y
-			if global_position.distance_to(look_target) > 0.1:
+			if Vector2(look_target.x - global_position.x, look_target.z - global_position.z).length_squared() > 0.001:
 				look_at(look_target, Vector3.UP)
 		if anim_mesh:
 			anim_mesh.rotation.z = lerp(anim_mesh.rotation.z, 0.0, 10.0 * delta)

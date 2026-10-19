@@ -79,7 +79,8 @@ func _physics_process(delta):
 			is_moving = true
 			# Rotate to face direction
 			var look_target = global_position + direction
-			if global_position.distance_to(look_target) > 0.1:
+			look_target.y = global_position.y
+			if Vector2(look_target.x - global_position.x, look_target.z - global_position.z).length_squared() > 0.001:
 				look_at(look_target, Vector3.UP)
 		else:
 			velocity.x = move_toward(velocity.x, 0, speed)
@@ -133,7 +134,7 @@ func _physics_process(delta):
 				
 				# Rotate to face direction
 				var look_target = Vector3(next_path_pos.x, global_position.y, next_path_pos.z)
-				if global_position.distance_to(look_target) > 0.1:
+				if Vector2(look_target.x - global_position.x, look_target.z - global_position.z).length_squared() > 0.001:
 					look_at(look_target, Vector3.UP)
 			else:
 				velocity.x = move_toward(velocity.x, 0, speed)
@@ -141,7 +142,7 @@ func _physics_process(delta):
 				
 				# Face target while attacking
 				var look_target = Vector3(current_target.global_position.x, global_position.y, current_target.global_position.z)
-				if global_position.distance_to(look_target) > 0.1:
+				if Vector2(look_target.x - global_position.x, look_target.z - global_position.z).length_squared() > 0.001:
 					look_at(look_target, Vector3.UP)
 		else:
 			current_target = null

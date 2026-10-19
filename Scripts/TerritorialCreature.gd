@@ -260,7 +260,7 @@ func _physics_process(delta):
 			is_moving = true
 			
 			var look_pos = Vector3(current_target.global_position.x, global_position.y, current_target.global_position.z)
-			if global_position.distance_to(look_pos) > 0.1:
+			if Vector2(look_pos.x - global_position.x, look_pos.z - global_position.z).length_squared() > 0.001:
 				look_at(look_pos, Vector3.UP)
 		else:
 			# Attack target
@@ -268,7 +268,7 @@ func _physics_process(delta):
 			velocity.z = move_toward(velocity.z, 0, speed)
 			
 			var look_pos = Vector3(current_target.global_position.x, global_position.y, current_target.global_position.z)
-			if global_position.distance_to(look_pos) > 0.1:
+			if Vector2(look_pos.x - global_position.x, look_pos.z - global_position.z).length_squared() > 0.001:
 				look_at(look_pos, Vector3.UP)
 				
 			attack_timer -= delta
@@ -293,7 +293,8 @@ func _physics_process(delta):
 			is_moving = true
 			
 			var look_pos = global_position + Vector3(home_dir.x, 0, home_dir.z)
-			if global_position.distance_to(look_pos) > 0.1:
+			look_pos.y = global_position.y
+			if Vector2(look_pos.x - global_position.x, look_pos.z - global_position.z).length_squared() > 0.001:
 				look_at(look_pos, Vector3.UP)
 		else:
 			# Idle patrol near nest
@@ -312,7 +313,8 @@ func _physics_process(delta):
 				is_moving = true
 				
 				var look_pos = global_position + Vector3(p_dir.x, 0, p_dir.z)
-				if global_position.distance_to(look_pos) > 0.1:
+				look_pos.y = global_position.y
+				if Vector2(look_pos.x - global_position.x, look_pos.z - global_position.z).length_squared() > 0.001:
 					look_at(look_pos, Vector3.UP)
 			else:
 				velocity.x = move_toward(velocity.x, 0, speed)
