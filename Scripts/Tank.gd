@@ -192,8 +192,9 @@ func _physics_process(delta):
 	elif is_moving:
 		facing_dir = Vector3(velocity.x, 0, velocity.z)
 		
-	if facing_dir.length() > 0.1:
+	if Vector2(facing_dir.x, facing_dir.z).length_squared() > 0.001:
 		var look_target = global_position + facing_dir.normalized() * 5.0
+		look_target.y = global_position.y
 		look_at(look_target, Vector3.UP)
 		if anim_mesh and is_moving:
 			var t = Time.get_ticks_msec() / 1000.0 * speed * 2.0
