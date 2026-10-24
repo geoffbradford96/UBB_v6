@@ -6,6 +6,7 @@
 [resource]
 script = ExtResource("1_script")
 card_name = "VoidSpitter"
+is_melee = false
 spawn_count = 2
 description = "Lobs acidic projectiles from a massive distance."
 unit_scene = ExtResource("2_scene")

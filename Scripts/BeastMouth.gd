@@ -118,7 +118,7 @@ func _physics_process(delta):
 		
 	# Self-defense Melee Chomp on close intruders
 	melee_timer -= delta
-	if melee_timer <= 0.0:
+	if melee_timer <= 0.0 and is_inside_tree() and get_tree():
 		for node in get_tree().get_nodes_in_group("Targetable"):
 			if not node.is_in_group("Beast") and is_instance_valid(node) and node != self:
 				var hp = node.get_node_or_null("HealthComponent")
@@ -130,14 +130,16 @@ func _physics_process(delta):
 						# Violent jaw clamp snap
 						if mn and is_instance_valid(mn):
 							var tw = create_tween()
-							tw.tween_property(mn, "scale", Vector3(0.75, 1.5, 0.75), 0.08)
-							tw.tween_property(mn, "scale", Vector3(1.0, 1.0, 1.0), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+							if tw:
+								tw.tween_property(mn, "scale", Vector3(0.75, 1.5, 0.75), 0.08)
+								tw.tween_property(mn, "scale", Vector3(1.0, 1.0, 1.0), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 						break
 						
 	# Periodic Cell Spawning
 	spawn_timer += delta
 	if spawn_timer >= spawn_interval:
 		spawn_timer = 0.0
+		if not is_inside_tree() or not get_tree(): return
 		var cell_count = get_tree().get_nodes_in_group("Beast").size()
 		if cell_count > 60: return
 		
@@ -155,7 +157,7 @@ func sync_spawn_cell(cell_type: int = 0):
 	var scn = digestive_cell_scene if cell_type == 1 else cell_scene
 	if scn:
 		var c = scn.instantiate()
-		var scene_root = get_tree().current_scene if (get_tree() and get_tree().current_scene) else get_parent()
+		var scene_root = get_tree().current_scene if (is_inside_tree() and get_tree() and get_tree().current_scene) else get_parent()
 		if scene_root:
 			scene_root.add_child(c)
 			c.global_position = global_position + Vector3(0, 0.8, 0)
@@ -165,5 +167,6 @@ func sync_spawn_cell(cell_type: int = 0):
 		var mn = get_meta("mesh_node") if has_meta("mesh_node") else null
 		if mn and is_instance_valid(mn):
 			var tw = create_tween()
-			tw.tween_property(mn, "scale", Vector3(1.35, 0.6, 1.35), 0.1)
-			tw.tween_property(mn, "scale", Vector3(1.0, 1.0, 1.0), 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			if tw:
+				tw.tween_property(mn, "scale", Vector3(1.35, 0.6, 1.35), 0.1)
+				tw.tween_property(mn, "scale", Vector3(1.0, 1.0, 1.0), 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)

@@ -107,9 +107,8 @@ func _physics_process(delta):
 		velocity.y -= 9.8 * delta
 		
 	if not has_meta("target_recheck"):
-		set_meta("target_recheck", 1.0)
-	var __target_timer = get_meta("target_recheck")
-	__target_timer -= delta
+		set_meta("target_recheck", randf_range(0.8, 1.2))
+	var __target_timer = get_meta("target_recheck") - delta
 	set_meta("target_recheck", __target_timer)
 	
 	var target_is_dead = false
@@ -121,7 +120,7 @@ func _physics_process(delta):
 		current_target = null
 			
 	if current_target == null or target_is_dead or __target_timer <= 0.0:
-		if __target_timer <= 0.0 or target_is_dead: set_meta("target_recheck", 1.0)
+		if __target_timer <= 0.0 or target_is_dead: set_meta("target_recheck", randf_range(0.8, 1.2))
 		find_new_target()
 		
 	var is_moving = false
@@ -175,7 +174,7 @@ func shoot_acid_glob():
 	if not is_instance_valid(current_target): return
 	if projectile_scene:
 		var proj = projectile_scene.instantiate()
-		var scene_root = get_tree().current_scene if (get_tree() and get_tree().current_scene) else get_parent()
+		var scene_root = get_tree().current_scene if (is_inside_tree() and get_tree() and get_tree().current_scene) else get_parent()
 		if scene_root:
 			scene_root.add_child(proj)
 			var spawn_pos = global_position + Vector3(0, 0.65, 0)
@@ -208,28 +207,34 @@ func shoot_acid_glob():
 			mat.emission_enabled = true
 			mat.emission = acid_color
 			mat.emission_energy_multiplier = 4.0
-			p_mesh.set_surface_override_material(0, mat)
+			p_mesh.material_override = mat
 			
 		# Spitting convulsion animation
 		if mesh:
 			var tw = create_tween()
-			tw.tween_property(mesh, "scale", Vector3(1.25, 0.75, 0.8), 0.08)
-			tw.tween_property(mesh, "scale", Vector3(1.0, 1.0, 1.0), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			if tw:
+				tw.tween_property(mesh, "scale", Vector3(1.25, 0.75, 0.8), 0.08)
+				tw.tween_property(mesh, "scale", Vector3(1.0, 1.0, 1.0), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func find_new_target():
 	current_target = null
-	var enemies = []
-	for node in get_tree().get_nodes_in_group("Targetable"):
-		if not node.is_in_group("Beast") and is_instance_valid(node) and node != self:
-			enemies.append(node)
+	if not is_inside_tree() or not get_tree():
+		return
 	var closest = 99999.0
-	for e in enemies:
-		if is_instance_valid(e):
-			var target_hc = e.get_node_or_null("HealthComponent")
-			if target_hc and target_hc.is_dead: continue
-			var gs = _get_game_state()
-			if gs and gs.is_unit_stealthed_from(e, self): continue
-			var d = global_position.distance_to(e.global_position)
-			if d < closest:
-				closest = d
-				current_target = e
+	var my_pos = global_position
+	var gs = _get_game_state()
+
+	for node in get_tree().get_nodes_in_group("Targetable"):
+		if node == self or not is_instance_valid(node) or node.is_in_group("Beast"):
+			continue
+		var d = my_pos.distance_to(node.global_position)
+		if d >= closest:
+			continue
+		var target_hc = node.get_node_or_null("HealthComponent")
+		if target_hc and target_hc.is_dead:
+			continue
+		if gs and gs.is_unit_stealthed_from(node, self):
+			continue
+
+		closest = d
+		current_target = node

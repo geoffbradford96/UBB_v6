@@ -10,6 +10,8 @@ var current_solar_beam: Node3D = null
 
 var match_timer: float = 600.0
 var sudden_death_active: bool = false
+var _last_displayed_second: int = -1
+var _cached_timer_str: String = ""
 var beast_timer: float = 0.0
 var beast_spawn_interval: float = 5.0
 var beast_tentacle_scene = preload("res://Scenes/BeastTentacle.tscn")
@@ -17,11 +19,22 @@ var beast_mouth_scene = preload("res://Scenes/BeastMouth.tscn")
 const StealthBrushScript = preload("res://Scripts/StealthBrush.gd")
 const TerritorialCreatureScript = preload("res://Scripts/TerritorialCreature.gd")
 const SolarBeamHazardScript = preload("res://Scripts/SolarBeamHazard.gd")
+const BeastOfHarmonyScript = preload("res://Scripts/BeastOfHarmony.gd")
+const HarmonyHuskBuilderScript = preload("res://Scripts/HarmonyHuskBuilder.gd")
+const HarmonyInfectorScript = preload("res://Scripts/HarmonyInfector.gd")
+const GildedMitosisScript = preload("res://Scripts/GildedMitosisComponent.gd")
+const MapLayoutBuilderScript = preload("res://Scripts/MapLayoutBuilder.gd")
 var placed_feature_records: Array = []
 
 
 var initial_towers_per_team = {}
-var koth_points = {"SideA": 0, "SideB": 0, "SideC": 0, "SideD": 0, "SideE": 0, "SideF": 0}
+var koth_points = {
+    "SideA": 0, "SideB": 0, "SideC": 0, "SideD": 0, "SideE": 0,
+    "SideF": 0, "SideG": 0, "SideH": 0, "SideI": 0, "SideJ": 0,
+    "SideK": 0, "SideL": 0, "SideM": 0, "SideN": 0, "SideO": 0,
+    "SideP": 0, "SideQ": 0, "SideR": 0, "SideS": 0, "SideT": 0,
+    "SideU": 0, "SideV": 0, "SideW": 0, "SideX": 0, "SideY": 0
+}
 
 class LocalPlayerState:
     var p_id: int
@@ -156,7 +169,11 @@ func _exit_tree():
 func _on_peer_disconnected(id: int):
     print("Multiplayer peer disconnected: ", id)
     if GameState.current_mode.begins_with("ONLINE"):
-        _end_match("OPPONENT DISCONNECTED! Victory by forfeit.")
+        var peers = multiplayer.get_peers()
+        if peers.is_empty():
+            _end_match("OPPONENT DISCONNECTED! Victory by forfeit.")
+        else:
+            print("Peer %d disconnected; %d peers remaining." % [id, peers.size()])
 
 func _on_server_disconnected():
     print("Multiplayer server disconnected.")
@@ -164,10 +181,29 @@ func _on_server_disconnected():
         _end_match("HOST DISCONNECTED FROM SERVER.")
 
 func setup_match():
+    var req_layout: String = String(GameState.map_layout_id) if ("map_layout_id" in GameState) else ""
+    var req_players: int = int(GameState.match_player_count) if ("match_player_count" in GameState) else 2
+    if GameState.map_selected == "Arena_6P.tscn" and req_players < 6 and (req_layout == "" or req_layout == "CLASSIC_1V1"):
+        req_layout = "HEX_STAR_6P"
+        req_players = 6
+    elif GameState.map_selected == "Arena_4P.tscn" and req_players < 4 and (req_layout == "" or req_layout == "CLASSIC_1V1"):
+        req_layout = "QUAD_4LANE_2V2"
+        req_players = 4
 
-    var is_4p_mode = (GameState.current_mode == "LOCAL_SPLIT_4P" or GameState.map_selected == "Arena_4P.tscn")
-    var is_6p_mode = (GameState.map_selected == "Arena_6P.tscn")
-    var total_slots = 6 if is_6p_mode else (4 if is_4p_mode else 2)
+    var layout_info: Dictionary = MapLayoutBuilderScript.build_map_layout(
+        self,
+        req_layout,
+        req_players,
+        GameState.team_comp if ("team_comp" in GameState) else "2_TEAMS"
+    )
+    var total_slots: int = int(layout_info["total_slots"])
+    var teams_for_ai: Array = layout_info["teams_for_slots"]
+    var slot_defs: Array = layout_info["slot_defs"]
+
+    koth_points.clear()
+    for t_name in GameState.ALL_TEAMS:
+        koth_points[t_name] = 0
+
     var local_players = players.size()
     var start_bot_idx = local_players
     
@@ -175,56 +211,61 @@ func setup_match():
         start_bot_idx = 0
         if players.size() > 0 and players[0].ui:
             players[0].ui.visible = true # Keep spectator match UI visible!
-    
-    var teams_for_ai = []
-    if is_6p_mode:
-        total_slots = 6
-        teams_for_ai = ["SideA", "SideA", "SideA", "SideB", "SideB", "SideB"]
-    elif is_4p_mode:
-        total_slots = max(GameState.match_player_count, 4)
-        teams_for_ai = ["SideA", "SideA", "SideB", "SideB"]
     else:
-        total_slots = 2
-        teams_for_ai = ["SideA", "SideB"]
+        for p_idx in range(players.size()):
+            if p_idx < teams_for_ai.size():
+                players[p_idx].team = teams_for_ai[p_idx]
+                if players[p_idx].cam:
+                    players[p_idx].cam.assigned_team = teams_for_ai[p_idx]
+                    if p_idx < slot_defs.size() and players[p_idx].cam.has_method("snap_to"):
+                        players[p_idx].cam.snap_to(slot_defs[p_idx]["base_pos"] * 0.75)
+        if players.size() > 0:
+            GameState.local_player_team = players[0].team
     
     if GameState.current_mode.begins_with("ONLINE"):
         return # Do not spawn AIs in online PvP matches!
         
     var profiles_for_slots = ["Player1", "Guest1", "Guest2", "Guest3", "Guest4", "Guest5"]
-    var ai_pool = ["Dominion", "The Reach", "Pirates", "Rimworlders", "Void", "Chaos"]
+    var ai_pool = ["Dominion", "The Reach", "Pirates", "Rimworlders", "Void", "Plague of Harmony", "Gilded Harmony", "Chaos"]
+    var interval_scale: float = 1.0 + maxf(0.0, float(total_slots - 6) * 0.055)
     for i in range(start_bot_idx, total_slots):
         var bot = BotAI.new()
         bot.my_team = teams_for_ai[i]
-        bot.profile = profiles_for_slots[i] if i < profiles_for_slots.size() else "Guest1"
+        bot.profile = profiles_for_slots[i] if i < profiles_for_slots.size() else ("BotSlot_" + str(i))
         bot.slot_index = i
         
-        # Unified AI Pool: Dice roll (1d6) per bot slot
+        # Unified AI Pool: Dice roll per bot slot
         var chosen_archetype = ai_pool[randi() % ai_pool.size()]
         bot.archetype = chosen_archetype
         
-        # Pick enemy team
+        # Pick primary enemy team (different from bot.my_team)
         bot.enemy_team = "SideB" if bot.my_team == "SideA" else "SideA"
+        for cand_t in GameState.active_match_teams:
+            if cand_t != bot.my_team:
+                bot.enemy_team = cand_t
+                break
         bot.difficulty = GameState.ai_difficulty
         
         # Base requisition rate matches player's base (0.5), balanced by difficulty
         if GameState.ai_difficulty == "EASY":
             bot.requisition_rate = 0.4
-            bot.think_interval = 1.3
+            bot.think_interval = 1.3 * interval_scale
         elif GameState.ai_difficulty == "MEDIUM":
             bot.requisition_rate = 0.5
-            bot.think_interval = 1.0
+            bot.think_interval = 1.0 * interval_scale
         elif GameState.ai_difficulty == "HARD":
             bot.requisition_rate = 0.6
-            bot.think_interval = 0.7
+            bot.think_interval = 0.7 * interval_scale
         
         add_child(bot)
         print("Spawned BotAI for ", bot.my_team, " [Slot ", i, "] Archetype: ", bot.archetype, " with profile ", bot.profile)
 
-    var kz = get_node_or_null("KotH_Zone")
-    if kz:
-        kz.visible = (GameState.game_mode == "KOTH")
+    var is_koth := GameState.is_koth_mode()
+    for kz in get_tree().get_nodes_in_group("KotHZones"):
+        if kz is Node3D:
+            kz.visible = is_koth
 
-    if GameState.game_mode == "KOTH":
+    if is_koth:
         var timer = Timer.new()
         timer.wait_time = 1.0
         timer.autostart = true
@@ -232,7 +273,7 @@ func setup_match():
         add_child(timer)
     _apply_faction_visuals()
     
-    for t in ["SideA", "SideB", "SideC", "SideD", "SideE", "SideF"]:
+    for t in GameState.ALL_TEAMS:
         var count = 0
         for z in get_tree().get_nodes_in_group(t):
             if "Tower" in z.name: count += 1
@@ -240,7 +281,8 @@ func setup_match():
         
     var chosen_biome = GameState.map_biome if ("map_biome" in GameState and GameState.map_biome != "") else "SUNNY_PLAINS"
     if chosen_biome == "RANDOM":
-        chosen_biome = "SUNNY_PLAINS" if randf() < 0.5 else "SCORCHING_DUNES"
+        var biome_pool = ["SUNNY_PLAINS", "SCORCHING_DUNES", "REALM_OF_HARMONY"]
+        chosen_biome = biome_pool[randi() % biome_pool.size()]
     var map_seed = randi()
     if multiplayer.has_multiplayer_peer() and multiplayer.multiplayer_peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED:
         if multiplayer.is_server():
@@ -248,6 +290,9 @@ func setup_match():
     else:
         _apply_map_environment(chosen_biome, map_seed)
         
+var _tower_count_cache_timer: float = 0.0
+var _cached_tower_counts: Dictionary = {}
+
 func _process(delta):
     if get_tree().paused: return
 
@@ -267,9 +312,7 @@ func _process(delta):
             beast_spawn_interval = max(0.5, beast_spawn_interval - 0.2)
             var hazard_count = get_tree().get_nodes_in_group("Beast").size()
             if hazard_count > 60: return # Cap beast entities to avoid lag
-            var map_size = 40.0
-            if GameState.map_selected == "Arena_4P.tscn": map_size = 70.0
-            if GameState.map_selected == "Arena_6P.tscn": map_size = 110.0
+            var map_size = maxf(40.0, GameState.current_map_radius * 0.58)
             var h_pos = _get_clear_hazard_pos(map_size)
             var rx = h_pos.x
             var rz = h_pos.z
@@ -282,16 +325,29 @@ func _process(delta):
                 
     var b_root = get_node_or_null("BeastOfNothingness")
     if b_root and is_instance_valid(b_root):
-        b_root.rotation.y += delta * 0.04
+        b_root.rotation.y += delta * 0.025
         var t_anim = Time.get_ticks_msec() / 1000.0
         for child in b_root.get_children():
-            if child.has_meta("seg_phase"):
-                var phase = child.get_meta("seg_phase")
-                var base_y = child.get_meta("base_y")
-                child.position.y = base_y + sin(t_anim * 1.6 + phase) * 6.0
-            elif child.has_meta("is_head"):
-                var base_hy = child.get_meta("base_y")
-                child.position.y = base_hy + sin(t_anim * 0.9) * 3.5
+            if child.has_meta("is_lower_jaw"):
+                var base_ly = float(child.get_meta("base_y", 0.0))
+                child.position.y = base_ly + sin(t_anim * 1.1) * 2.5
+                var jaw_pulse = 1.0 + sin(t_anim * 1.1) * 0.025
+                child.scale = Vector3(jaw_pulse, 1.0, jaw_pulse)
+            elif child.has_meta("is_upper_jaw"):
+                var base_uy = float(child.get_meta("base_y", 62.0))
+                child.position.y = base_uy - sin(t_anim * 1.1) * 4.5
+                child.rotation.y = -b_root.rotation.y * 1.6 + sin(t_anim * 0.4) * 0.12
+            elif child.has_meta("is_uvula"):
+                var pulse = 1.0 + abs(sin(t_anim * 2.4)) * 0.22
+                child.scale = Vector3(pulse, 1.0 + cos(t_anim * 2.4) * 0.15, pulse)
+            elif child.has_meta("seg_phase"):
+                var phase = float(child.get_meta("seg_phase", 0.0))
+                var base_y = float(child.get_meta("base_y", 0.0))
+                child.position.y = base_y + sin(t_anim * 1.5 + phase) * 3.5
+                var base_rx = float(child.get_meta("base_rx", 0.0))
+                var base_rz = float(child.get_meta("base_rz", 0.0))
+                child.rotation.x = base_rx + sin(t_anim * 1.8 + phase) * 0.14
+                child.rotation.z = base_rz + cos(t_anim * 1.6 + phase) * 0.14
                 
     _update_timer_ui()
     _animate_faction_structures(delta)
@@ -313,6 +369,8 @@ func _process(delta):
                         rpc("sync_spawn_solar_beam", spawn_x, spawn_z, beam_dur, beam_id)
                     else:
                         sync_spawn_solar_beam(spawn_x, spawn_z, beam_dur, beam_id)
+    elif active_biome == "REALM_OF_HARMONY":
+        _update_realm_of_harmony(delta)
 
     if GameState.current_mode == "AI_VS_AI" and players.size() > 0 and players[0].ui:
         var bot_a: BotAI = null
@@ -330,14 +388,23 @@ func _process(delta):
             if bot_a: players[0].ui.update_requisition(bot_a.current_requisition, bot_a.max_requisition)
             if bot_b: players[0].ui.update_enemy_requisition(bot_b.current_requisition, bot_b.max_requisition, bot_b.my_team)
     else:
+        _tower_count_cache_timer -= delta
+        if _tower_count_cache_timer <= 0.0 or _cached_tower_counts.is_empty():
+            _tower_count_cache_timer = 0.5
+            for p in players:
+                if p.team == "Spectator": continue
+                var t_cnt := 0
+                for z in get_tree().get_nodes_in_group(p.team):
+                    if is_instance_valid(z) and "Tower" in z.name:
+                        t_cnt += 1
+                _cached_tower_counts[p.team] = t_cnt
+
         for p in players:
             if p.team == "Spectator": continue
-            var player_towers = 0
-            for z in get_tree().get_nodes_in_group(p.team):
-                if "Tower" in z.name: player_towers += 1
-                
+            var player_towers: int = int(_cached_tower_counts.get(p.team, 2))
             var initial = initial_towers_per_team.get(p.team, 2)
             var dynamic_rate = requisition_rate + ((initial - player_towers) * (1.0 / max(1.0, float(initial))))
+            dynamic_rate *= GameState.get_team_energy_multiplier(p.team)
             if sudden_death_active:
                 dynamic_rate *= 0.5
             if p.req < max_requisition:
@@ -359,6 +426,7 @@ func _process(delta):
                             enemy_name = b.my_team + " AI"
                             break
                     p.ui.update_enemy_requisition(enemy_req, max_requisition, enemy_name)
+
 
 @rpc("authority", "call_local", "reliable")
 func sync_start_sudden_death():
@@ -383,6 +451,8 @@ func _on_ui_card_selected(card_ui, ui_instance):
         
     if p.selected_card_ui == card_ui:
         p.selected_card_ui = null
+        if ui_instance and "selected_card_idx" in ui_instance:
+            ui_instance.selected_card_idx = -1
         toggle_deployment_visuals(p, false)
         return
         
@@ -413,8 +483,11 @@ func _unhandled_input(event):
         if p0 and p0.selected_card_ui:
             p0.selected_card_ui.set_selected(false)
             p0.selected_card_ui = null
+            if p0.ui and "selected_card_idx" in p0.ui:
+                p0.ui.selected_card_idx = -1
             toggle_deployment_visuals(p0, false)
             return
+
 
     var is_mouse_click = (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed)
     
@@ -502,14 +575,16 @@ func toggle_deployment_visuals(p: LocalPlayerState, should_show: bool, is_spell:
             mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
             ring.material_override = mat
             
-            get_tree().current_scene.add_child(ring)
+            var root_node = get_tree().current_scene if (get_tree() and get_tree().current_scene) else self
+            root_node.add_child(ring)
             ring.global_position = s.global_position + Vector3(0, 0.1, 0)
             p.visuals.append(ring)
 
 func can_deploy_at(team: String, target_pos: Vector3, is_spell: bool) -> bool:
     if is_spell: return true
+    if not is_inside_tree() or not get_tree(): return false
     for z in get_tree().get_nodes_in_group(team):
-        if "Base" in z.name or "Tower" in z.name or "CommandBay" in z.name:
+        if is_instance_valid(z) and ("Base" in z.name or "Tower" in z.name or "CommandBay" in z.name):
             var d = Vector2(target_pos.x, target_pos.z).distance_to(Vector2(z.global_position.x, z.global_position.z))
             if d <= 32.0:
                 return true
@@ -526,9 +601,16 @@ func attempt_to_play_card(p: LocalPlayerState, data: Resource, target_position: 
         
     if data.card_type == "Commander":
         var has_commander = false
-        for u in get_tree().get_nodes_in_group(p.team):
-            if u.is_in_group("CommanderUnit") or "Commander" in u.name or "Overlord" in u.name or "GreatBeastSpeaker" in u.name:
-                has_commander = true
+        if get_tree():
+            for u in get_tree().get_nodes_in_group(p.team):
+                if not is_instance_valid(u) or u.is_queued_for_deletion():
+                    continue
+                var hc = u.get_node_or_null("HealthComponent")
+                if hc and hc.is_dead:
+                    continue
+                if u.is_in_group("CommanderUnit") or "Commander" in u.name or "Overlord" in u.name or "GreatBeastSpeaker" in u.name:
+                    has_commander = true
+                    break
         if has_commander:
             print(p.team, " Cannot deploy! You already have an active Commander.")
             if p.ui and p.ui.has_method("show_placement_warning"):
@@ -562,7 +644,8 @@ func sync_spawn_card(card_path: String, pos: Vector3, team: String, unique_id: S
     if is_nan(pos.x) or is_nan(pos.y) or is_nan(pos.z) or is_inf(pos.x) or is_inf(pos.y) or is_inf(pos.z):
         push_warning("Security: Rejected NaN/Inf position in sync_spawn_card")
         return
-    if abs(pos.x) > 200.0 or abs(pos.z) > 200.0:
+    var max_spawn_bound: float = maxf(250.0, GameState.current_map_radius + 60.0)
+    if abs(pos.x) > max_spawn_bound or abs(pos.z) > max_spawn_bound:
         push_warning("Security: Rejected out-of-bounds spawn position: " + str(pos))
         return
         
@@ -580,9 +663,42 @@ func sync_spawn_card(card_path: String, pos: Vector3, team: String, unique_id: S
     var count = 1
     if "spawn_count" in data: count = data.spawn_count
     
+    var c_name_clean: String = data.card_name.replace(" ", "")
+    var random_husk_cat: String = ""
+    var is_random_husk_card: bool = false
+    var is_gilded_husk_card: bool = false
+    
+    if c_name_clean == "PlagueEnlightenedMelee":
+        is_random_husk_card = true; random_husk_cat = "MELEE"; count = 4
+    elif c_name_clean == "PlagueEnlightenedRanged":
+        is_random_husk_card = true; random_husk_cat = "RANGED"; count = 2
+    elif c_name_clean == "PlagueEnlightenedTank":
+        is_random_husk_card = true; random_husk_cat = "TANK"; count = 1
+    elif c_name_clean == "PlagueEnlightenedPlane":
+        is_random_husk_card = true; random_husk_cat = "PLANE"; count = 1
+    elif c_name_clean == "PlagueEnlightenedBig":
+        is_random_husk_card = true; random_husk_cat = "BIG"; count = 1
+    elif c_name_clean == "GildedSavedHorde":
+        is_random_husk_card = true; is_gilded_husk_card = true; random_husk_cat = "ANY"; count = 6
+    elif c_name_clean == "GildedHuskMelee":
+        is_random_husk_card = true; is_gilded_husk_card = true; random_husk_cat = "MELEE"; count = 1
+    elif c_name_clean == "GildedHuskRanged":
+        is_random_husk_card = true; is_gilded_husk_card = true; random_husk_cat = "RANGED"; count = 1
+    
     for i in range(count):
-        var unit = data.unit_scene.instantiate()
-        unit.name = data.card_name.replace(" ", "") + "_" + unique_id + "_" + str(i)
+        var scene_to_spawn: PackedScene = data.unit_scene
+        var rolled_scene_path: String = ""
+        if is_random_husk_card:
+            rolled_scene_path = HarmonyHuskBuilderScript.get_random_husk_scene_for_category(random_husk_cat)
+            var loaded_scn = load(rolled_scene_path)
+            if loaded_scn is PackedScene:
+                scene_to_spawn = loaded_scn
+                
+        var unit = scene_to_spawn.instantiate()
+        var base_u_name: String = c_name_clean
+        if is_random_husk_card and rolled_scene_path != "":
+            base_u_name = rolled_scene_path.get_file().get_basename() + "_Husk"
+        unit.name = base_u_name + "_" + unique_id + "_" + str(i)
         
         if multiplayer.has_multiplayer_peer() and multiplayer.multiplayer_peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED:
             var sync = MultiplayerSynchronizer.new()
@@ -592,16 +708,25 @@ func sync_spawn_card(card_path: String, pos: Vector3, team: String, unique_id: S
             sync.replication_config = config
             unit.add_child(sync)
             
-        
+        unit.add_to_group(team)
         add_child(unit)
         if data.is_spell: unit.global_position = pos
-        else: unit.global_position = pos + Vector3(randf_range(-2.0, 2.0), 2.0, randf_range(-2.0, 2.0))
-        unit.add_to_group(team)
+        else: unit.global_position = pos + Vector3(randf_range(-2.2, 2.2), 2.0, randf_range(-2.2, 2.2))
         
         var hc = unit.get_node_or_null("HealthComponent")
-        if hc and "max_hp" in data:
-            if hc.has_method("set_max_health"):
+        if hc and not is_random_husk_card and "max_hp" in data:
+            if hc.has_method("set_max_health") and (data.max_hp != 100.0 or hc.max_health == 100.0):
                 hc.set_max_health(data.max_hp)
+                
+        if is_random_husk_card:
+            HarmonyHuskBuilderScript.transform_into_husk(unit, is_gilded_husk_card, team)
+            if is_gilded_husk_card:
+                var mitosis = GildedMitosisScript.new()
+                mitosis.name = "GildedMitosisComponent"
+                mitosis.source_scene_path = rolled_scene_path
+                unit.add_child(mitosis)
+        elif hc and hc.has_method("update_health_bar_colors"):
+            hc.update_health_bar_colors()
                 
         if "card_type" in data and data.card_type == "Commander":
             unit.add_to_group("CommanderUnit")
@@ -615,43 +740,74 @@ func _on_koth_tick():
         if not multiplayer.is_server():
             return
             
-    var koth_zone = get_node_or_null("KotH_Zone")
-    if not koth_zone: return
-    var bodies = koth_zone.get_overlapping_bodies()
-    var team_counts = {"SideA": 0, "SideB": 0, "SideC": 0, "SideD": 0, "SideE": 0, "SideF": 0}
-    for b in bodies:
-        if b.is_in_group("Targetable") and not "Base" in b.name and not "Tower" in b.name:
-            if b.is_in_group("SideA"): team_counts["SideA"] += 1
-            elif b.is_in_group("SideB"): team_counts["SideB"] += 1
-            elif b.is_in_group("SideC"): team_counts["SideC"] += 1
-            elif b.is_in_group("SideD"): team_counts["SideD"] += 1
-            elif b.is_in_group("SideE"): team_counts["SideE"] += 1
-            elif b.is_in_group("SideF"): team_counts["SideF"] += 1
-    var dominant_team = ""
-    var max_count = 0
-    var tied = false
-    for team in team_counts:
-        if team_counts[team] > max_count:
-            max_count = team_counts[team]
-            dominant_team = team
-            tied = false
-        elif team_counts[team] == max_count and max_count > 0:
-            tied = true
-    if not tied and dominant_team != "":
-        koth_points[dominant_team] += 1
-        if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
-            rpc("sync_koth_points", dominant_team, koth_points[dominant_team])
-        if koth_points[dominant_team] >= 100:
-            _end_match(dominant_team + " WINS THE MATCH BY KOTH!", dominant_team)
+    var zones: Array = get_tree().get_nodes_in_group("KotHZones")
+    if zones.is_empty():
+        var single_kz = get_node_or_null("KotH_Zone")
+        if single_kz:
+            zones.append(single_kz)
+    if zones.is_empty():
+        return
+
+    var mobile_units: Array[Node3D] = []
+    for b in get_tree().get_nodes_in_group("Targetable"):
+        if not is_instance_valid(b) or not (b is Node3D):
+            continue
+        if "Base" in b.name or "Tower" in b.name or "CommandBay" in b.name:
+            continue
+        if b.is_in_group("NeutralCreature") or b.is_in_group("NeutralStructure") or b.is_in_group("SideHarmony") or "BeastTentacle" in b.name or "BeastMouth" in b.name:
+            continue
+        var hc = b.get_node_or_null("HealthComponent")
+        if hc and hc.is_dead:
+            continue
+        mobile_units.append(b as Node3D)
+
+    for kz in zones:
+        if not is_instance_valid(kz) or not (kz is Node3D):
+            continue
+        var kz_node: Node3D = kz as Node3D
+        var kz_rad: float = float(kz_node.get_meta("koth_radius", 16.0))
+        var kz_pos2 := Vector2(kz_node.global_position.x, kz_node.global_position.z)
+
+        var team_counts := {}
+        for u: Node3D in mobile_units:
+            var u_pos2 := Vector2(u.global_position.x, u.global_position.z)
+            if u_pos2.distance_to(kz_pos2) <= kz_rad:
+                for g in u.get_groups():
+                    if g.begins_with("Side") and g != "SideHarmony":
+                        team_counts[g] = int(team_counts.get(g, 0)) + 1
+                        break
+
+        var dominant_team: String = ""
+        var max_count: int = 0
+        var tied: bool = false
+        for team_key in team_counts.keys():
+            var c_val: int = int(team_counts[team_key])
+            if c_val > max_count:
+                max_count = c_val
+                dominant_team = String(team_key)
+                tied = false
+            elif c_val == max_count and max_count > 0:
+                tied = true
+
+        kz_node.set_meta("controlling_team", "CONTESTED" if tied else dominant_team)
+        if not tied and dominant_team != "":
+            koth_points[dominant_team] = int(koth_points.get(dominant_team, 0)) + 1
+            _last_displayed_second = -1
+            if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+                rpc("sync_koth_points", dominant_team, koth_points[dominant_team])
+            if koth_points[dominant_team] >= 100:
+                _end_match(dominant_team + " WINS THE MATCH BY KING OF THE HILL!", dominant_team)
+                return
 
 @rpc("authority", "unreliable")
 func sync_koth_points(team: String, points: int):
-    if koth_points.has(team):
+    if team.begins_with("Side"):
         koth_points[team] = points
+        _last_displayed_second = -1
 
 
 func _get_slot_faction(slot: int) -> String:
-    if slot < players.size():
+    if slot < players.size() and players[slot].team != "Spectator":
         var p = players[slot]
         var deck = []
         if GameState.player_decks.has(p.profile):
@@ -668,7 +824,7 @@ func _get_slot_faction(slot: int) -> String:
                 if deck != null and not deck.is_empty():
                     return _detect_faction_from_deck(deck)
                     
-    var opts = ["Dominion", "Void", "Rimworlders", "Pirates", "The Reach", "Chaos"]
+    var opts = ["Dominion", "Void", "Rimworlders", "Pirates", "The Reach", "Plague of Harmony", "Gilded Harmony", "Chaos"]
     return opts[randi() % opts.size()]
 
 func _get_team_faction(team: String) -> String:
@@ -692,19 +848,23 @@ func _get_team_faction(team: String) -> String:
                 if p_name != null and GameState.player_decks.has(p_name):
                     return _detect_faction_from_deck(GameState.player_decks[p_name])
                     
-    var opts = ["Dominion", "Void", "Rimworlders", "Pirates", "The Reach", "Chaos"]
+    var opts = ["Dominion", "Void", "Rimworlders", "Pirates", "The Reach", "Plague of Harmony", "Gilded Harmony", "Chaos"]
     return opts[randi() % opts.size()]
 
 func _detect_faction_from_deck(deck: Array) -> String:
-    var v = 0; var r = 0; var d = 0; var pi = 0; var reach = 0
+    var v = 0; var r = 0; var d = 0; var pi = 0; var reach = 0; var plague = 0; var gilded = 0
     for c in deck:
-        if "Void" in c: v += 1
-        elif "Rimworlder" in c or "Sky" in c or "Stone" in c or "Giant" in c or "Great" in c: r += 1
+        if "Plague" in c: plague += 1
+        elif "Gilded" in c: gilded += 1
+        elif "Void" in c: v += 1
+        elif "Rimworlder" in c or "Sky" in c or "Stone" in c or "Giant" in c or "Great" in c or "Monstrous" in c: r += 1
         elif "Scrap" in c: pi += 1
         elif "Reach" in c: reach += 1
         else: d += 1
-    var mx = max(d, max(v, max(r, max(pi, reach))))
+    var mx = max(d, max(v, max(r, max(pi, max(reach, max(plague, gilded))))))
     if mx < 3 and deck.size() >= 5: return "Chaos"
+    if mx == plague and plague > 0: return "Plague of Harmony"
+    if mx == gilded and gilded > 0: return "Gilded Harmony"
     if mx == v and v > 0: return "Void"
     if mx == r and r > 0: return "Rimworlders"
     if mx == pi and pi > 0: return "Pirates"
@@ -716,18 +876,19 @@ func _apply_faction_visuals():
         if not multiplayer.is_server():
             return
             
-    var is_6p_mode = (GameState.map_selected == "Arena_6P.tscn")
-    if is_6p_mode:
-        for slot in range(6):
+    if get_node_or_null("Base_0") != null:
+        var slot_count: int = maxi(2, int(GameState.match_player_count))
+        for slot in range(slot_count):
             var slot_faction = _get_slot_faction(slot)
-            for node in get_tree().get_nodes_in_group("SideA") + get_tree().get_nodes_in_group("SideB"):
-                if ("Base_" + str(slot)) in node.name or ("Tower_" + str(slot)) in node.name:
-                    if "faction" in node: node.faction = slot_faction
-                    _build_structure_mesh(node, slot_faction, "Tower" in node.name)
+            for child in get_children():
+                if child.name == ("Base_" + str(slot)) or child.name.begins_with("Tower_" + str(slot) + "_"):
+                    if "faction" in child: child.faction = slot_faction
+                    _build_structure_mesh(child, slot_faction, "Tower" in child.name)
         return
             
-    var teams = ["SideA", "SideB", "SideC", "SideD", "SideE", "SideF"]
-    for team in teams:
+    for team in GameState.ALL_TEAMS:
+        if get_tree().get_nodes_in_group(team).is_empty():
+            continue
         var faction = _get_team_faction(team)
         if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
             rpc("sync_faction", team, faction)
@@ -758,13 +919,18 @@ func _build_structure_mesh(node, faction: String, is_tower: bool):
     var mesh_node = Node3D.new()
     node.add_child(mesh_node)
     node.set_meta("faction_mesh", mesh_node)
+    node.add_to_group("FactionStructures")
     
     var is_bay = "CommandBay" in node.name
     
     # Resolve faction type (supports substring matching, and Chaos/Random independent dice rolls per tower/base)
     var f = faction
     var f_type = "Dominion"
-    if "Void" in f:
+    if "Plague" in f:
+        f_type = "Plague of Harmony"
+    elif "Gilded" in f:
+        f_type = "Gilded Harmony"
+    elif "Void" in f:
         f_type = "Void"
     elif "Rimworld" in f:
         f_type = "Rimworlders"
@@ -773,7 +939,7 @@ func _build_structure_mesh(node, faction: String, is_tower: bool):
     elif "Reach" in f:
         f_type = "The Reach"
     elif f == "Chaos" or f == "Random":
-        var all_factions = ["Dominion", "Void", "Rimworlders", "Pirates", "The Reach"]
+        var all_factions = ["Dominion", "Void", "Rimworlders", "Pirates", "The Reach", "Plague of Harmony", "Gilded Harmony"]
         f_type = all_factions[randi() % all_factions.size()]
     node.set_meta("resolved_faction", f_type)
     
@@ -801,22 +967,26 @@ func _build_structure_mesh(node, faction: String, is_tower: bool):
             var c1 = MeshInstance3D.new(); c1.mesh = BoxMesh.new(); c1.mesh.size = Vector3(1.2, 1.0, 1.2)
             c1.material_override = steel_mat; c1.position = Vector3(1.6, 0.5, 1.8); mesh_node.add_child(c1)
         elif is_tower:
-            # Heavy Military Pillbox with Twin Autocannons
+            # Heavy Military Pillbox with Twin Autocannons parented to Rotating Turret
             var base = MeshInstance3D.new(); base.mesh = CylinderMesh.new(); base.mesh.height = 3.2; base.mesh.bottom_radius = 2.2; base.mesh.top_radius = 1.8; base.mesh.radial_segments = 8
             base.material_override = camo_mat; base.position.y = 1.6; mesh_node.add_child(base)
             var ring = MeshInstance3D.new(); ring.mesh = TorusMesh.new(); ring.mesh.outer_radius = 2.0; ring.mesh.inner_radius = 1.7
             ring.material_override = steel_mat; ring.position.y = 3.2; mesh_node.add_child(ring)
+            var pedestal = MeshInstance3D.new(); pedestal.mesh = CylinderMesh.new(); pedestal.mesh.height = 0.5; pedestal.mesh.bottom_radius = 1.3; pedestal.mesh.top_radius = 1.2
+            pedestal.material_override = steel_mat; pedestal.position.y = 3.35; mesh_node.add_child(pedestal)
             var turret = MeshInstance3D.new(); turret.mesh = BoxMesh.new(); turret.mesh.size = Vector3(2.2, 1.2, 2.4)
             turret.material_override = steel_mat; turret.position.y = 4.0; mesh_node.add_child(turret)
             mesh_node.set_meta("dominion_turret", turret)
-            # Twin heavy barrels
+            var mantlet = MeshInstance3D.new(); mantlet.mesh = BoxMesh.new(); mantlet.mesh.size = Vector3(1.6, 0.65, 0.45)
+            mantlet.material_override = camo_mat; mantlet.position = Vector3(0, 0.0, 1.2); turret.add_child(mantlet)
+            # Twin heavy barrels parented to turret so they aim and recoil with it!
             for i in range(2):
                 var barrel = MeshInstance3D.new(); barrel.mesh = CylinderMesh.new(); barrel.mesh.height = 2.5; barrel.mesh.bottom_radius = 0.22; barrel.mesh.top_radius = 0.2
-                barrel.material_override = steel_mat; barrel.rotation_degrees.x = 90; barrel.position = Vector3(-0.5 + i*1.0, 4.0, 1.6)
-                mesh_node.add_child(barrel)
-            # Sensor Visor
+                barrel.material_override = steel_mat; barrel.rotation_degrees.x = 90; barrel.position = Vector3(-0.5 + i*1.0, 0.0, 1.6)
+                turret.add_child(barrel)
+            # Sensor Visor parented to turret
             var visor = MeshInstance3D.new(); visor.mesh = BoxMesh.new(); visor.mesh.size = Vector3(1.6, 0.25, 0.2)
-            visor.material_override = amber_mat; visor.position = Vector3(0, 4.4, 1.25); mesh_node.add_child(visor)
+            visor.material_override = amber_mat; visor.position = Vector3(0, 0.4, 1.25); turret.add_child(visor)
         else:
             # Massive Command Citadel HQ
             var fort = MeshInstance3D.new(); fort.mesh = CylinderMesh.new(); fort.mesh.height = 4.5; fort.mesh.bottom_radius = 4.8; fort.mesh.top_radius = 4.2; fort.mesh.radial_segments = 8
@@ -853,12 +1023,12 @@ func _build_structure_mesh(node, faction: String, is_tower: bool):
                 pustule.position = Vector3(cos(a)*1.6, 1.8, sin(a)*1.6); mesh_node.add_child(pustule)
         elif is_tower:
             # Flesh Spire with Giant Pulsing Eye
-            var spire = MeshInstance3D.new(); spire.mesh = CylinderMesh.new(); spire.mesh.height = 6.0; spire.mesh.bottom_radius = 1.4; spire.mesh.top_radius = 0.4
+            var spire = MeshInstance3D.new(); spire.mesh = CylinderMesh.new(); spire.mesh.height = 6.0; spire.mesh.bottom_radius = 1.4; spire.mesh.top_radius = 0.65
             spire.material_override = flesh_mat; spire.position.y = 3.0; mesh_node.add_child(spire)
-            # Talons surrounding the top
+            # Talons surrounding the top cradling the eye
             for i in range(4):
-                var talon = MeshInstance3D.new(); talon.mesh = CylinderMesh.new(); talon.mesh.height = 2.5; talon.mesh.bottom_radius = 0.25; talon.mesh.top_radius = 0.05
-                talon.material_override = chitin_mat; talon.position = Vector3(cos(i*PI/2)*0.8, 5.5, sin(i*PI/2)*0.8)
+                var talon = MeshInstance3D.new(); talon.mesh = CylinderMesh.new(); talon.mesh.height = 2.5; talon.mesh.bottom_radius = 0.28; talon.mesh.top_radius = 0.05
+                talon.material_override = chitin_mat; talon.position = Vector3(cos(i*PI/2)*0.72, 5.5, sin(i*PI/2)*0.72)
                 talon.rotation_degrees.x = 25 * cos(i*PI/2); talon.rotation_degrees.z = 25 * sin(i*PI/2); mesh_node.add_child(talon)
             var eye = MeshInstance3D.new(); eye.mesh = SphereMesh.new(); eye.mesh.radius = 1.3
             eye.material_override = eye_mat; eye.position.y = 5.8; mesh_node.add_child(eye)
@@ -875,7 +1045,7 @@ func _build_structure_mesh(node, faction: String, is_tower: bool):
                 var fang = MeshInstance3D.new(); fang.mesh = CylinderMesh.new(); fang.mesh.height = 5.0; fang.mesh.bottom_radius = 0.6; fang.mesh.top_radius = 0.05
                 fang.material_override = chitin_mat
                 var a = i * (2*PI/8)
-                fang.position = Vector3(cos(a)*3.6, 2.5, sin(a)*3.6)
+                fang.position = Vector3(cos(a)*3.5, 2.5, sin(a)*3.5)
                 fang.rotation_degrees.x = 35 * cos(a); fang.rotation_degrees.z = 35 * sin(a); mesh_node.add_child(fang)
 
     # ==========================================
@@ -892,28 +1062,28 @@ func _build_structure_mesh(node, faction: String, is_tower: bool):
             var yurt = MeshInstance3D.new(); yurt.mesh = CylinderMesh.new(); yurt.mesh.bottom_radius = 2.8; yurt.mesh.top_radius = 0.2; yurt.mesh.height = 3.5
             yurt.material_override = wood_mat; yurt.position.y = 1.75; mesh_node.add_child(yurt)
             var horn1 = MeshInstance3D.new(); horn1.mesh = CylinderMesh.new(); horn1.mesh.top_radius = 0.05; horn1.mesh.bottom_radius = 0.3; horn1.mesh.height = 2.5
-            horn1.material_override = bone_mat; horn1.position = Vector3(-1.4, 2.5, 1.4); horn1.rotation_degrees.z = -35; mesh_node.add_child(horn1)
+            horn1.material_override = bone_mat; horn1.position = Vector3(-1.2, 2.3, 1.2); horn1.rotation_degrees.z = -35; mesh_node.add_child(horn1)
             var horn2 = MeshInstance3D.new(); horn2.mesh = CylinderMesh.new(); horn2.mesh.top_radius = 0.05; horn2.mesh.bottom_radius = 0.3; horn2.mesh.height = 2.5
-            horn2.material_override = bone_mat; horn2.position = Vector3(1.4, 2.5, 1.4); horn2.rotation_degrees.z = 35; mesh_node.add_child(horn2)
+            horn2.material_override = bone_mat; horn2.position = Vector3(1.2, 2.3, 1.2); horn2.rotation_degrees.z = 35; mesh_node.add_child(horn2)
         elif is_tower:
-            # Primitive Timber Watchtower with Spiked Skull Crest
+            # Primitive Timber Watchtower with Cross-Braces & Spiked Skull Crest
             for i in range(4):
                 var post = MeshInstance3D.new(); post.mesh = CylinderMesh.new(); post.mesh.height = 5.5; post.mesh.bottom_radius = 0.35; post.mesh.top_radius = 0.3
                 post.material_override = wood_mat; post.position = Vector3(cos(i*PI/2 + PI/4)*1.3, 2.75, sin(i*PI/2 + PI/4)*1.3)
                 mesh_node.add_child(post)
             var platform = MeshInstance3D.new(); platform.mesh = CylinderMesh.new(); platform.mesh.height = 0.6; platform.mesh.bottom_radius = 2.0; platform.mesh.top_radius = 2.0
             platform.material_override = wood_mat; platform.position.y = 5.3; mesh_node.add_child(platform)
-            # Bone Spikes
+            # Bone Spikes anchored into platform rim
             for i in range(6):
                 var tusk = MeshInstance3D.new(); tusk.mesh = CylinderMesh.new(); tusk.mesh.height = 1.8; tusk.mesh.bottom_radius = 0.2; tusk.mesh.top_radius = 0.02
                 tusk.material_override = bone_mat; var a = i * (2*PI/6)
-                tusk.position = Vector3(cos(a)*1.8, 6.2, sin(a)*1.8); mesh_node.add_child(tusk)
+                tusk.position = Vector3(cos(a)*1.75, 6.0, sin(a)*1.75); mesh_node.add_child(tusk)
         else:
             # Megalithic Beast Totem Fortress & Sacrificial Fire
             var stone_ring = MeshInstance3D.new(); stone_ring.mesh = CylinderMesh.new(); stone_ring.mesh.height = 2.0; stone_ring.mesh.bottom_radius = 4.8; stone_ring.mesh.top_radius = 4.4; stone_ring.mesh.radial_segments = 12
             stone_ring.material_override = stone_mat; stone_ring.position.y = 1.0; mesh_node.add_child(stone_ring)
             var fire = MeshInstance3D.new(); fire.mesh = SphereMesh.new(); fire.mesh.radius = 2.2
-            fire.material_override = fire_mat; fire.position.y = 2.8; mesh_node.add_child(fire)
+            fire.material_override = fire_mat; fire.position.y = 2.6; mesh_node.add_child(fire)
             mesh_node.set_meta("rimworld_fire", fire)
             # Gigantic Beast Tusks
             for i in range(4):
@@ -937,16 +1107,19 @@ func _build_structure_mesh(node, faction: String, is_tower: bool):
             var crate = MeshInstance3D.new(); crate.mesh = BoxMesh.new(); crate.mesh.size = Vector3(3.5, 2.4, 3.5)
             crate.material_override = rust_mat; crate.position.y = 1.2; mesh_node.add_child(crate)
             var plate = MeshInstance3D.new(); plate.mesh = BoxMesh.new(); plate.mesh.size = Vector3(2.5, 1.2, 0.2)
-            plate.material_override = scrap_yellow; plate.position = Vector3(0, 1.4, 1.85); mesh_node.add_child(plate)
+            plate.material_override = scrap_yellow; plate.position = Vector3(0, 1.4, 1.80); mesh_node.add_child(plate)
             var exhaust = MeshInstance3D.new(); exhaust.mesh = CylinderMesh.new(); exhaust.mesh.height = 2.0; exhaust.mesh.top_radius = 0.2; exhaust.mesh.bottom_radius = 0.2
             exhaust.material_override = dark_metal; exhaust.position = Vector3(1.2, 2.8, -1.2); mesh_node.add_child(exhaust)
         elif is_tower:
-            # Jury-Rigged Crane Turret with Scrap Shielding
+            # Jury-Rigged Crane Turret with Centered Swivel Hub & Scrap Shielding
             var derrick = MeshInstance3D.new(); derrick.mesh = BoxMesh.new(); derrick.mesh.size = Vector3(1.6, 5.5, 1.6)
             derrick.material_override = rust_mat; derrick.position.y = 2.75; mesh_node.add_child(derrick)
+            var crane_pivot = Node3D.new(); crane_pivot.position = Vector3(0, 5.6, 0); mesh_node.add_child(crane_pivot)
+            var crane_hub = MeshInstance3D.new(); crane_hub.mesh = CylinderMesh.new(); crane_hub.mesh.height = 0.7; crane_hub.mesh.top_radius = 0.65; crane_hub.mesh.bottom_radius = 0.75
+            crane_hub.material_override = dark_metal; crane_pivot.add_child(crane_hub)
             var crane_boom = MeshInstance3D.new(); crane_boom.mesh = BoxMesh.new(); crane_boom.mesh.size = Vector3(4.2, 0.6, 0.8)
-            crane_boom.material_override = scrap_yellow; crane_boom.position = Vector3(1.6, 5.6, 0); mesh_node.add_child(crane_boom)
-            mesh_node.set_meta("pirate_crane", crane_boom)
+            crane_boom.material_override = scrap_yellow; crane_boom.position = Vector3(1.4, 0.0, 0); crane_pivot.add_child(crane_boom)
+            mesh_node.set_meta("pirate_crane", crane_pivot)
             var cannon = MeshInstance3D.new(); cannon.mesh = CylinderMesh.new(); cannon.mesh.height = 3.0; cannon.mesh.top_radius = 0.3; cannon.mesh.bottom_radius = 0.35
             cannon.material_override = dark_metal; cannon.rotation_degrees.x = 90; cannon.position = Vector3(0, 4.5, 1.5); mesh_node.add_child(cannon)
         else:
@@ -955,12 +1128,12 @@ func _build_structure_mesh(node, faction: String, is_tower: bool):
                 var box = MeshInstance3D.new(); box.mesh = BoxMesh.new(); box.mesh.size = Vector3(2.8, 2.2, 4.2)
                 box.material_override = rust_mat if i % 2 == 0 else scrap_yellow
                 box.rotation_degrees.y = (i * 35.0)
-                box.position = Vector3((i - 2.0) * 1.6, 1.1 + (i % 2) * 1.5, 0)
+                box.position = Vector3((i - 2.0) * 1.4, 1.1 + (i % 2) * 1.3, 0)
                 mesh_node.add_child(box)
             # Giant smoking smokestacks
             for i in range(2):
                 var stack = MeshInstance3D.new(); stack.mesh = CylinderMesh.new(); stack.mesh.height = 5.0; stack.mesh.bottom_radius = 0.55; stack.mesh.top_radius = 0.55
-                stack.material_override = dark_metal; stack.position = Vector3(-1.8 + i*3.6, 4.5, -1.0); mesh_node.add_child(stack)
+                stack.material_override = dark_metal; stack.position = Vector3(-1.4 + i*2.8, 4.2, -0.8); mesh_node.add_child(stack)
         randomize()
 
     # ==========================================
@@ -968,25 +1141,27 @@ func _build_structure_mesh(node, faction: String, is_tower: bool):
     # ==========================================
     elif f_type == "The Reach":
         var white_mat = StandardMaterial3D.new(); white_mat.albedo_color = Color(0.95, 0.97, 1.0); white_mat.roughness = 0.15; white_mat.metallic = 0.1
-        var cyan_mat = StandardMaterial3D.new(); cyan_mat.albedo_color = Color(0.0, 0.88, 1.0); cyan_mat.emission_enabled = true; cyan_mat.emission = Color(0.0, 0.85, 1.0); cyan_mat.emission_energy_multiplier = 3.5
+        var cyan_mat = StandardMaterial3D.new(); cyan_mat.albedo_color = Color(0.0, 0.88, 1.0); cyan_mat.emission_enabled = true; cyan_mat.emission = Color(0.0, 0.85, 0.1); cyan_mat.emission = Color(0.0, 0.85, 1.0); cyan_mat.emission_energy_multiplier = 3.5
         
         if is_bay:
             # Porcelain Energy Pylon & Prisms
             var dome = MeshInstance3D.new(); dome.mesh = SphereMesh.new(); dome.mesh.radius = 2.0; dome.mesh.height = 2.2
             dome.material_override = white_mat; dome.position.y = 1.1; mesh_node.add_child(dome)
-            var halo = MeshInstance3D.new(); halo.mesh = TorusMesh.new(); halo.mesh.outer_radius = 2.4; halo.mesh.inner_radius = 2.2
+            var halo = MeshInstance3D.new(); halo.mesh = TorusMesh.new(); halo.mesh.outer_radius = 2.3; halo.mesh.inner_radius = 1.95
             halo.material_override = cyan_mat; halo.position.y = 1.2; mesh_node.add_child(halo)
         elif is_tower:
-            # Floating Crystalline Obelisk (Anti-Gravity)
-            var pad = MeshInstance3D.new(); pad.mesh = CylinderMesh.new(); pad.mesh.height = 0.5; pad.mesh.bottom_radius = 1.8; pad.mesh.top_radius = 1.8; pad.mesh.radial_segments = 6
-            pad.material_override = white_mat; pad.position.y = 0.25; mesh_node.add_child(pad)
+            # Crystalline Obelisk with Continuous Energy Conduit Core
+            var pad = MeshInstance3D.new(); pad.mesh = CylinderMesh.new(); pad.mesh.height = 0.6; pad.mesh.bottom_radius = 1.8; pad.mesh.top_radius = 1.6; pad.mesh.radial_segments = 6
+            pad.material_override = white_mat; pad.position.y = 0.3; mesh_node.add_child(pad)
+            var conduit = MeshInstance3D.new(); conduit.mesh = CylinderMesh.new(); conduit.mesh.height = 3.6; conduit.mesh.bottom_radius = 0.42; conduit.mesh.top_radius = 0.42
+            conduit.material_override = cyan_mat; conduit.position.y = 2.1; mesh_node.add_child(conduit)
             var obelisk = MeshInstance3D.new(); obelisk.mesh = BoxMesh.new(); obelisk.mesh.size = Vector3(1.3, 4.5, 1.3)
             obelisk.material_override = white_mat; obelisk.position.y = 3.8; mesh_node.add_child(obelisk)
             var core = MeshInstance3D.new(); core.mesh = SphereMesh.new(); core.mesh.radius = 0.9
             core.material_override = cyan_mat; core.position.y = 1.6; mesh_node.add_child(core)
             mesh_node.set_meta("reach_hover", obelisk)
         else:
-            # Towering Crystalline Nexus with Levitating Rings
+            # Towering Crystalline Nexus with Connected Rings
             var base_dais = MeshInstance3D.new(); base_dais.mesh = CylinderMesh.new(); base_dais.mesh.height = 1.2; base_dais.mesh.bottom_radius = 4.6; base_dais.mesh.top_radius = 4.0; base_dais.mesh.radial_segments = 6
             base_dais.material_override = white_mat; base_dais.position.y = 0.6; mesh_node.add_child(base_dais)
             var spire = MeshInstance3D.new(); spire.mesh = CylinderMesh.new(); spire.mesh.height = 7.0; spire.mesh.bottom_radius = 1.4; spire.mesh.top_radius = 0.2
@@ -995,6 +1170,118 @@ func _build_structure_mesh(node, faction: String, is_tower: bool):
             for i in range(3):
                 var ring = MeshInstance3D.new(); ring.mesh = TorusMesh.new(); ring.mesh.outer_radius = 2.6 - i*0.2; ring.mesh.inner_radius = 2.2 - i*0.2
                 ring.material_override = white_mat; ring.position.y = 2.4 + i*1.6; mesh_node.add_child(ring)
+                var spoke = MeshInstance3D.new(); spoke.mesh = BoxMesh.new(); spoke.mesh.size = Vector3((2.4 - i*0.2)*2.0, 0.14, 0.18)
+                spoke.material_override = white_mat; ring.add_child(spoke)
+
+    # ==========================================
+    # 6. THE PLAGUE OF HARMONY (GOLDEN FACE & EYE SANCTUARY)
+    # ==========================================
+    elif f_type == "Plague of Harmony":
+        var gold_mat = HarmonyHuskBuilderScript.get_gold_vein_material()
+        var marble_mat = HarmonyHuskBuilderScript.get_husk_body_material()
+        var eye_iris_mat = StandardMaterial3D.new(); eye_iris_mat.albedo_color = Color(1.0, 0.22, 0.42); eye_iris_mat.emission_enabled = true; eye_iris_mat.emission = Color(1.0, 0.28, 0.48); eye_iris_mat.emission_energy_multiplier = 3.2
+
+        if is_bay:
+            var dais = MeshInstance3D.new(); dais.mesh = CylinderMesh.new(); dais.mesh.height = 1.8; dais.mesh.bottom_radius = 2.4; dais.mesh.top_radius = 2.0
+            dais.material_override = marble_mat; dais.position.y = 0.9; mesh_node.add_child(dais)
+            var halo = MeshInstance3D.new(); halo.mesh = TorusMesh.new(); halo.mesh.outer_radius = 2.35; halo.mesh.inner_radius = 1.95
+            halo.material_override = gold_mat; halo.position.y = 1.8; mesh_node.add_child(halo)
+            var face = HarmonyHuskBuilderScript._create_mini_gold_face(1.3, gold_mat)
+            face.position = Vector3(0, 1.3, 1.9); mesh_node.add_child(face)
+        elif is_tower:
+            var pillar = MeshInstance3D.new(); pillar.mesh = CylinderMesh.new(); pillar.mesh.height = 5.4; pillar.mesh.bottom_radius = 1.8; pillar.mesh.top_radius = 1.25
+            pillar.material_override = marble_mat; pillar.position.y = 2.7; mesh_node.add_child(pillar)
+            var chalice = MeshInstance3D.new(); chalice.mesh = TorusMesh.new(); chalice.mesh.outer_radius = 1.45; chalice.mesh.inner_radius = 1.05
+            chalice.material_override = gold_mat; chalice.position.y = 5.35; mesh_node.add_child(chalice)
+            for i in range(4):
+                var ang = i * (PI / 2.0)
+                var f_mask = HarmonyHuskBuilderScript._create_mini_gold_face(0.95, gold_mat)
+                f_mask.position = Vector3(sin(ang) * 1.45, 2.8, cos(ang) * 1.45)
+                f_mask.rotation.y = ang
+                mesh_node.add_child(f_mask)
+            var eye_orb = MeshInstance3D.new(); eye_orb.mesh = SphereMesh.new(); eye_orb.mesh.radius = 1.15
+            eye_orb.material_override = eye_iris_mat; eye_orb.position.y = 6.0; mesh_node.add_child(eye_orb)
+            var eye_ring = MeshInstance3D.new(); eye_ring.mesh = TorusMesh.new(); eye_ring.mesh.outer_radius = 1.55; eye_ring.mesh.inner_radius = 1.10
+            eye_ring.material_override = gold_mat; eye_ring.rotation_degrees.x = 65; eye_orb.add_child(eye_ring)
+            mesh_node.set_meta("plague_eye", eye_orb)
+        else:
+            var citadel = MeshInstance3D.new(); citadel.mesh = CylinderMesh.new(); citadel.mesh.height = 4.6; citadel.mesh.bottom_radius = 4.8; citadel.mesh.top_radius = 3.8
+            citadel.material_override = marble_mat; citadel.position.y = 2.3; mesh_node.add_child(citadel)
+            for i in range(4):
+                var ang = i * (PI / 2.0)
+                var f_monolith = HarmonyHuskBuilderScript._create_mini_gold_face(1.65, gold_mat)
+                f_monolith.position = Vector3(sin(ang) * 4.1, 2.4, cos(ang) * 4.1)
+                f_monolith.rotation.y = ang
+                mesh_node.add_child(f_monolith)
+                var buttress = MeshInstance3D.new(); buttress.mesh = CylinderMesh.new(); buttress.mesh.height = 2.6; buttress.mesh.bottom_radius = 0.45; buttress.mesh.top_radius = 0.20
+                buttress.material_override = gold_mat; buttress.position = Vector3(sin(ang) * 2.4, 5.1, cos(ang) * 2.4)
+                buttress.rotation_degrees = Vector3(-22.0 * cos(ang), 0.0, 22.0 * sin(ang))
+                mesh_node.add_child(buttress)
+            var core_eye = MeshInstance3D.new(); core_eye.mesh = SphereMesh.new(); core_eye.mesh.radius = 2.1
+            core_eye.material_override = eye_iris_mat; core_eye.position.y = 6.0; mesh_node.add_child(core_eye)
+            for r_i in range(2):
+                var r_halo = MeshInstance3D.new(); r_halo.mesh = TorusMesh.new()
+                r_halo.mesh.outer_radius = 2.6 + r_i * 0.45; r_halo.mesh.inner_radius = 2.05 + r_i * 0.45
+                r_halo.material_override = gold_mat; r_halo.rotation_degrees = Vector3(45 * (r_i + 1), 35 * r_i, 20)
+                core_eye.add_child(r_halo)
+            mesh_node.set_meta("plague_core", core_eye)
+
+    # ==========================================
+    # 7. GILDED HARMONY (PALE BLUE, DARK GREEN & GOLD GENETIC HELIX CITADEL)
+    # ==========================================
+    elif f_type == "Gilded Harmony":
+        var gold_mat = HarmonyHuskBuilderScript.get_gold_vein_material()
+        var pale_blue_mat = HarmonyHuskBuilderScript.get_gilded_pale_blue_material()
+        var dark_green_mat = HarmonyHuskBuilderScript.get_gilded_dark_green_material()
+
+        if is_bay:
+            var vat = MeshInstance3D.new(); vat.mesh = CylinderMesh.new(); vat.mesh.height = 2.4; vat.mesh.bottom_radius = 2.2; vat.mesh.top_radius = 1.9
+            vat.material_override = dark_green_mat; vat.position.y = 1.2; mesh_node.add_child(vat)
+            var bio_dome = MeshInstance3D.new(); bio_dome.mesh = SphereMesh.new(); bio_dome.mesh.radius = 1.65
+            bio_dome.material_override = pale_blue_mat; bio_dome.position.y = 2.2; mesh_node.add_child(bio_dome)
+            var ring = MeshInstance3D.new(); ring.mesh = TorusMesh.new(); ring.mesh.outer_radius = 2.3; ring.mesh.inner_radius = 1.95
+            ring.material_override = gold_mat; ring.position.y = 1.8; mesh_node.add_child(ring)
+        elif is_tower:
+            var base_pad = MeshInstance3D.new(); base_pad.mesh = CylinderMesh.new(); base_pad.mesh.height = 1.4; base_pad.mesh.bottom_radius = 2.1; base_pad.mesh.top_radius = 1.8
+            base_pad.material_override = dark_green_mat; base_pad.position.y = 0.7; mesh_node.add_child(base_pad)
+            var central_spine = MeshInstance3D.new(); central_spine.mesh = CylinderMesh.new(); central_spine.mesh.height = 4.8; central_spine.mesh.bottom_radius = 0.28; central_spine.mesh.top_radius = 0.22
+            central_spine.material_override = gold_mat; central_spine.position.y = 3.4; mesh_node.add_child(central_spine)
+            var helix_root = Node3D.new(); helix_root.position.y = 3.6; mesh_node.add_child(helix_root)
+            for i in range(6):
+                var y_o = (float(i) - 2.5) * 0.85
+                var a = float(i) * 0.9
+                for s in [-1.0, 1.0]:
+                    var node_b = MeshInstance3D.new(); node_b.mesh = SphereMesh.new(); node_b.mesh.radius = 0.42
+                    var p_c = Vector3(cos(a) * 1.1 * s, y_o, sin(a) * 1.1 * s)
+                    node_b.position = p_c
+                    node_b.material_override = dark_green_mat if s < 0.0 else pale_blue_mat
+                    helix_root.add_child(node_b)
+                    if i < 5:
+                        var next_yo = (float(i + 1) - 2.5) * 0.85
+                        var next_a = float(i + 1) * 0.9
+                        var p_n = Vector3(cos(next_a) * 1.1 * s, next_yo, sin(next_a) * 1.1 * s)
+                        var h_link = MeshInstance3D.new(); h_link.mesh = CylinderMesh.new()
+                        h_link.mesh.top_radius = 0.14; h_link.mesh.bottom_radius = 0.14; h_link.mesh.height = p_c.distance_to(p_n)
+                        h_link.position = (p_c + p_n) * 0.5
+                        h_link.material_override = dark_green_mat if s < 0.0 else pale_blue_mat
+                        helix_root.add_child(h_link)
+                var bar = MeshInstance3D.new(); bar.mesh = CylinderMesh.new(); bar.mesh.top_radius = 0.10; bar.mesh.bottom_radius = 0.10; bar.mesh.height = 2.2
+                bar.position = Vector3(0, y_o, 0); bar.rotation = Vector3(0, -a, PI * 0.5); bar.material_override = gold_mat
+                helix_root.add_child(bar)
+            mesh_node.set_meta("gilded_helix", helix_root)
+        else:
+            var bio_base = MeshInstance3D.new(); bio_base.mesh = CylinderMesh.new(); bio_base.mesh.height = 3.4; bio_base.mesh.bottom_radius = 4.8; bio_base.mesh.top_radius = 4.0
+            bio_base.material_override = dark_green_mat; bio_base.position.y = 1.7; mesh_node.add_child(bio_base)
+            var core_stalk = MeshInstance3D.new(); core_stalk.mesh = CylinderMesh.new(); core_stalk.mesh.height = 2.4; core_stalk.mesh.bottom_radius = 1.6; core_stalk.mesh.top_radius = 1.2
+            core_stalk.material_override = gold_mat; core_stalk.position.y = 4.0; mesh_node.add_child(core_stalk)
+            var gene_core = MeshInstance3D.new(); gene_core.mesh = SphereMesh.new(); gene_core.mesh.radius = 2.3
+            gene_core.material_override = pale_blue_mat; gene_core.position.y = 5.0; mesh_node.add_child(gene_core)
+            for i in range(3):
+                var g_ring = MeshInstance3D.new(); g_ring.mesh = TorusMesh.new()
+                g_ring.mesh.outer_radius = 2.7 + i * 0.45; g_ring.mesh.inner_radius = 2.2 + i * 0.45
+                g_ring.material_override = gold_mat; g_ring.rotation_degrees = Vector3(40 * (i + 1), 50 * i, 25)
+                gene_core.add_child(g_ring)
+            mesh_node.set_meta("gilded_core", gene_core)
 
 func _update_timer_ui():
     for p in players:
@@ -1004,12 +1291,27 @@ func _update_timer_ui():
         if not label: continue
         
         if not sudden_death_active:
-            var m = int(floor(match_timer / 60.0))
-            var s = int(match_timer) % 60
-            var time_str = str(m) + ":" + ("0" if s < 10 else "") + str(s)
-            if GameState.game_mode == "KOTH":
-                time_str += " | Hill [A:" + str(koth_points["SideA"]) + " B:" + str(koth_points["SideB"]) + "]"
-            label.text = time_str
+            var s_int = int(match_timer)
+            if s_int != _last_displayed_second:
+                _last_displayed_second = s_int
+                var m = int(floor(match_timer / 60.0))
+                var s = s_int % 60
+                var time_str = str(m) + ":" + ("0" if s < 10 else "") + str(s)
+                if GameState.is_koth_mode():
+                    var active_t: Array = GameState.active_match_teams.duplicate()
+                    if active_t.is_empty():
+                        active_t = ["SideA", "SideB"]
+                    active_t.sort_custom(func(a, b): return koth_points.get(a, 0) > koth_points.get(b, 0))
+                    var parts: Array[String] = []
+                    for idx in range(min(3, active_t.size())):
+                        var t_name: String = active_t[idx]
+                        parts.append(t_name.trim_prefix("Side") + ":" + str(koth_points.get(t_name, 0)))
+                    time_str += " | Hill [" + " ".join(parts) + "]"
+                elif GameState.is_domination_mode():
+                    var mode_tag := "FFA Domination" if GameState.is_ffa_mode() else "Domination"
+                    time_str += " | " + mode_tag
+                _cached_timer_str = time_str
+            label.text = _cached_timer_str
             label.modulate = Color(1, 1, 1)
             label.scale = Vector2(1.0, 1.0)
         else:
@@ -1018,179 +1320,349 @@ func _update_timer_ui():
             label.scale = Vector2(1.2 + sin(Time.get_ticks_msec()*0.01)*0.1, 1.2 + sin(Time.get_ticks_msec()*0.01)*0.1)
 
 func _start_beast_of_nothingness():
-    print("THE BEAST OF NOTHINGNESS AWAKENS! A colossal world-eater encircles the battlefield!")
+    print("THE BEAST OF NOTHINGNESS AWAKENS! The entire battlefield is inside its colossal Lovecraftian maw!")
+    var old_beast = get_node_or_null("BeastOfNothingness")
+    if old_beast:
+        old_beast.name = "BeastOfNothingness_Old"
+        remove_child(old_beast)
+        old_beast.queue_free()
+
     var beast_root = Node3D.new()
     beast_root.name = "BeastOfNothingness"
+    beast_root.position.y = -26.0
     add_child(beast_root)
-    
-    var arena_rad = 125.0
-    if GameState.map_selected == "Arena_4P.tscn": arena_rad = 145.0
-    elif GameState.map_selected == "Arena_6P.tscn": arena_rad = 205.0
 
-    # 1. World-Encircling Segmented Leviathan Body
-    # Encircles the entire map outer perimeter outside the arena boundaries
-    var body_mat = StandardMaterial3D.new()
-    body_mat.albedo_color = Color(0.10, 0.04, 0.16)
-    body_mat.roughness = 0.35
-    body_mat.metallic = 0.75
-    body_mat.emission_enabled = true
-    body_mat.emission = Color(0.68, 0.14, 0.95) # Pulsing purple void luminescence
-    body_mat.emission_energy_multiplier = 2.4
-    
-    var spine_mat = StandardMaterial3D.new()
-    spine_mat.albedo_color = Color(0.18, 0.08, 0.28)
-    spine_mat.emission_enabled = true
-    spine_mat.emission = Color(0.85, 0.20, 0.95)
-    spine_mat.emission_energy_multiplier = 1.8
-    
-    var total_segments = 64
-    for i in range(total_segments):
-        var angle = (float(i) / float(total_segments)) * TAU
-        var seg_root = Node3D.new()
-        seg_root.name = "BodySeg_" + str(i)
-        
-        # Serpentine sinusoidal radius and height variation staying on the outer perimeter rim
-        var r_wavy = arena_rad + sin(angle * 3.0) * 8.0
-        var base_y = -2.0 + sin(angle * 2.0) * 14.0
-        seg_root.position = Vector3(cos(angle) * r_wavy, base_y, sin(angle) * r_wavy)
-        seg_root.set_meta("base_y", base_y)
-        seg_root.set_meta("seg_phase", angle * 4.0)
-        
-        # Segment body mass
-        var seg_mesh = MeshInstance3D.new()
-        var sphere = SphereMesh.new()
-        sphere.radius = 8.5
-        sphere.height = 16.0
-        seg_mesh.mesh = sphere
-        seg_mesh.material_override = body_mat
-        seg_mesh.scale = Vector3(1.2, 0.85, 1.2)
-        seg_mesh.rotation.y = angle + PI * 0.5
-        seg_root.add_child(seg_mesh)
-        
-        # Giant Dorsal Void Spikes
-        for s in range(2):
-            var spine = MeshInstance3D.new()
-            var cyl = CylinderMesh.new()
-            cyl.top_radius = 0.0
-            cyl.bottom_radius = 1.5
-            cyl.height = randf_range(12.0, 18.0)
-            spine.mesh = cyl
-            spine.material_override = spine_mat
-            var s_offset = -3.0 if s == 0 else 3.0
-            spine.position = Vector3(cos(angle) * s_offset, 6.0, sin(angle) * s_offset)
-            spine.rotation.x = randf_range(-0.3, 0.3)
-            spine.rotation.z = randf_range(-0.4, 0.4)
-            seg_root.add_child(spine)
-            
-        # Massive Arched Tentacles every few segments pointing upward on outer rim
-        if i % 5 == 0:
-            var tentacle = MeshInstance3D.new()
-            var cyl_t = CylinderMesh.new()
-            cyl_t.top_radius = 0.4
-            cyl_t.bottom_radius = 3.2
-            cyl_t.height = 32.0
-            tentacle.mesh = cyl_t
-            tentacle.material_override = body_mat
-            tentacle.position = Vector3(0, 14.0, 0)
-            tentacle.rotation.x = sin(angle) * 0.3
-            tentacle.rotation.z = cos(angle) * 0.3
-            seg_root.add_child(tentacle)
-            
-        beast_root.add_child(seg_root)
+    var arena_rad = maxf(125.0, GameState.current_map_radius)
 
-    # 2. The Colossal Leviathan Head Looming High Over the Outer Rim
-    # Towering high at the outer edge of the arena looking hungrily inward across the entire battlefield
-    var head_root = Node3D.new()
-    head_root.name = "BeastColossalHead"
-    var head_ang = PI * 0.75
-    var head_dist = arena_rad + 8.0
-    var base_hy = 36.0
-    head_root.position = Vector3(cos(head_ang) * head_dist, base_hy, sin(head_ang) * head_dist)
-    head_root.set_meta("is_head", true)
-    head_root.set_meta("base_y", base_hy)
-    beast_root.add_child(head_root)
-    head_root.look_at(Vector3(0, 0, 0), Vector3.UP)
-    
-    # Giant Horned Skull
-    var skull = MeshInstance3D.new()
-    var box = BoxMesh.new()
-    box.size = Vector3(22.0, 16.0, 36.0)
-    skull.mesh = box
-    skull.material_override = body_mat
-    skull.position.y = 4.0
-    head_root.add_child(skull)
-    
-    # Upper Snout & Horn Mandibles
-    var snout = MeshInstance3D.new()
-    var prism = PrismMesh.new()
-    prism.size = Vector3(18.0, 12.0, 26.0)
-    snout.mesh = prism
-    snout.material_override = body_mat
-    snout.position = Vector3(0, 2.0, -22.0)
-    snout.rotation.x = -PI * 0.5
-    head_root.add_child(snout)
-    
-    # Giant Curved Void Horns
-    for side in [-1.0, 1.0]:
-        var horn = MeshInstance3D.new()
-        var h_cyl = CylinderMesh.new()
-        h_cyl.top_radius = 0.2
-        h_cyl.bottom_radius = 3.0
-        h_cyl.height = 34.0
-        horn.mesh = h_cyl
-        horn.material_override = spine_mat
-        horn.position = Vector3(side * 14.0, 16.0, 8.0)
-        horn.rotation.x = 0.6
-        horn.rotation.z = side * 0.45
-        head_root.add_child(horn)
-        
-    # Lower Gaping Jaw
-    var jaw = MeshInstance3D.new()
-    var jaw_box = BoxMesh.new()
-    jaw_box.size = Vector3(18.0, 5.0, 32.0)
-    jaw.mesh = jaw_box
-    jaw.material_override = body_mat
-    jaw.position = Vector3(0, -6.0, -18.0)
-    jaw.rotation.x = 0.35 # Open gaping mouth
-    head_root.add_child(jaw)
-    
-    # Razor Fangs on Jaws
+    # Shift the sky and directional light into an abyssal Lovecraftian cosmic gullet
+    var dir_light = get_node_or_null("DirectionalLight3D")
+    if dir_light:
+        dir_light.light_color = Color(0.85, 0.35, 0.95)
+        dir_light.light_energy = 0.95
+    var world_env = get_node_or_null("WorldEnvironment")
+    if world_env and world_env.environment and world_env.environment.sky:
+        var sky_mat = world_env.environment.sky.sky_material
+        if sky_mat is ProceduralSkyMaterial:
+            sky_mat.sky_top_color = Color(0.03, 0.01, 0.06)
+            sky_mat.sky_horizon_color = Color(0.32, 0.03, 0.22)
+            sky_mat.ground_bottom_color = Color(0.01, 0.0, 0.02)
+            sky_mat.ground_horizon_color = Color(0.24, 0.02, 0.16)
+
+    # Shared Lovecraftian Maw Materials
+    var maw_flesh_mat = StandardMaterial3D.new()
+    maw_flesh_mat.albedo_color = Color(0.09, 0.02, 0.13)
+    maw_flesh_mat.roughness = 0.32
+    maw_flesh_mat.metallic = 0.65
+    maw_flesh_mat.emission_enabled = true
+    maw_flesh_mat.emission = Color(0.52, 0.08, 0.78)
+    maw_flesh_mat.emission_energy_multiplier = 1.65
+    maw_flesh_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+    var gullet_mat = StandardMaterial3D.new()
+    gullet_mat.albedo_color = Color(0.04, 0.0, 0.07)
+    gullet_mat.roughness = 0.25
+    gullet_mat.emission_enabled = true
+    gullet_mat.emission = Color(0.38, 0.04, 0.55)
+    gullet_mat.emission_energy_multiplier = 1.25
+    gullet_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+
     var fang_mat = StandardMaterial3D.new()
-    fang_mat.albedo_color = Color(0.85, 0.85, 0.9)
-    fang_mat.roughness = 0.2
-    for fi in range(16):
-        var fang = MeshInstance3D.new()
-        var f_cyl = CylinderMesh.new()
-        f_cyl.top_radius = 0.0
-        f_cyl.bottom_radius = 1.2
-        f_cyl.height = 6.5
-        fang.mesh = f_cyl
-        fang.material_override = fang_mat
-        var f_x = -7.0 + (fi % 8) * 2.0
-        var f_z = -10.0 - (float(fi) / 8.0) * 12.0
-        fang.position = Vector3(f_x, 0.0, f_z)
-        jaw.add_child(fang)
-        
-    # Cluster of 12 Glowing Eldritch Eyes
-    for ei in range(12):
-        var eye = MeshInstance3D.new()
-        var eye_sphere = SphereMesh.new()
-        eye_sphere.radius = 1.8
-        eye_sphere.height = 3.6
-        eye.mesh = eye_sphere
-        var emat = StandardMaterial3D.new()
-        emat.albedo_color = Color(1.0, 0.1, 0.2)
-        emat.emission_enabled = true
-        emat.emission = Color(1.0, 0.1, 0.4) if ei % 2 == 0 else Color(0.75, 0.1, 1.0)
-        emat.emission_energy_multiplier = 3.5
-        eye.material_override = emat
-        var side_eye = -1.0 if (ei % 2 == 0) else 1.0
-        var eye_row = float(ei) / 2.0
-        eye.position = Vector3(side_eye * (6.0 + eye_row * 1.4), 8.0 + eye_row * 1.0, -8.0 - eye_row * 4.0)
-        head_root.add_child(eye)
+    fang_mat.albedo_color = Color(0.88, 0.84, 0.92)
+    fang_mat.roughness = 0.22
+    fang_mat.metallic = 0.15
+    fang_mat.emission_enabled = true
+    fang_mat.emission = Color(0.45, 0.12, 0.65)
+    fang_mat.emission_energy_multiplier = 0.55
+
+    # =========================================================================
+    # 1. LOWER ABYSSAL MANDIBLE, ESOPHAGEAL GULLET & CONCENTRIC FANG RINGS
+    # =========================================================================
+    var lower_jaw = Node3D.new()
+    lower_jaw.name = "LowerJawRoot"
+    lower_jaw.set_meta("is_lower_jaw", true)
+    lower_jaw.set_meta("base_y", 0.0)
+    beast_root.add_child(lower_jaw)
+
+    # Deep Esophageal Throat Funnel descending beneath the entire arena rim
+    var gullet_funnel = MeshInstance3D.new()
+    gullet_funnel.name = "AbyssalGulletFunnel"
+    var g_cyl = CylinderMesh.new()
+    g_cyl.top_radius = arena_rad * 1.16
+    g_cyl.bottom_radius = arena_rad * 0.42
+    g_cyl.height = 80.0
+    gullet_funnel.mesh = g_cyl
+    gullet_funnel.material_override = gullet_mat
+    gullet_funnel.position.y = -36.0
+    lower_jaw.add_child(gullet_funnel)
+
+    # Colossal Fleshy Lower Jaw Gum Rim encircling the battlefield
+    var gum_rim = MeshInstance3D.new()
+    gum_rim.name = "LowerMawGumRim"
+    var gum_torus = TorusMesh.new()
+    gum_torus.inner_radius = arena_rad * 0.90
+    gum_torus.outer_radius = arena_rad * 1.18
+    gum_rim.mesh = gum_torus
+    gum_rim.material_override = maw_flesh_mat
+    gum_rim.position.y = -1.5
+    lower_jaw.add_child(gum_rim)
+
+    # Pulsing Abyssal Uvula / Esophageal Heart deep in the throat
+    var uvula_core = MeshInstance3D.new()
+    uvula_core.name = "AbyssalUvulaCore"
+    var uv_sph = SphereMesh.new()
+    uv_sph.radius = arena_rad * 0.28
+    uv_sph.height = 28.0
+    uvula_core.mesh = uv_sph
+    uvula_core.material_override = maw_flesh_mat
+    uvula_core.position = Vector3(0.0, -24.0, 0.0)
+    uvula_core.set_meta("is_uvula", true)
+    beast_root.add_child(uvula_core)
+
+    # GPU Batch 1: 96 Titanic Outer Lower Jaw Fangs surrounding the entire arena
+    var outer_fang_count: int = 96
+    var outer_fang_mm := MultiMesh.new()
+    outer_fang_mm.transform_format = MultiMesh.TRANSFORM_3D
+    var outer_fang_cyl := CylinderMesh.new()
+    outer_fang_cyl.top_radius = 0.0
+    outer_fang_cyl.bottom_radius = 4.2
+    outer_fang_cyl.height = 38.0
+    outer_fang_mm.mesh = outer_fang_cyl
+    outer_fang_mm.instance_count = outer_fang_count
+
+    for fi in range(outer_fang_count):
+        var ang: float = (float(fi) / float(outer_fang_count)) * TAU
+        var r_f: float = arena_rad * 1.04 + sin(ang * 6.0) * 3.5
+        var h_scale: float = 0.85 + 0.35 * abs(sin(ang * 4.0 + float(fi) * 0.7))
+        var pos := Vector3(cos(ang) * r_f, 11.0 * h_scale, sin(ang) * r_f)
+        # Orient fang so it curves/tilts inward toward the center of the maw
+        var inward_dir := Vector3(-cos(ang), 0.0, -sin(ang))
+        var tilt_axis := inward_dir.cross(Vector3.UP).normalized()
+        var b := Basis(tilt_axis, -0.34).scaled(Vector3(1.0, h_scale, 1.0))
+        outer_fang_mm.set_instance_transform(fi, Transform3D(b, pos))
+
+    var outer_fangs_mmi := MultiMeshInstance3D.new()
+    outer_fangs_mmi.name = "OuterMawFangsMMI"
+    outer_fangs_mmi.multimesh = outer_fang_mm
+    outer_fangs_mmi.material_override = fang_mat
+    lower_jaw.add_child(outer_fangs_mmi)
+
+    # GPU Batch 2: 72 Inner Pharyngeal Hooked Gullet Teeth (Second Concentric Ring)
+    var inner_tooth_count: int = 72
+    var inner_tooth_mm := MultiMesh.new()
+    inner_tooth_mm.transform_format = MultiMesh.TRANSFORM_3D
+    var inner_tooth_cyl := CylinderMesh.new()
+    inner_tooth_cyl.top_radius = 0.0
+    inner_tooth_cyl.bottom_radius = 2.6
+    inner_tooth_cyl.height = 22.0
+    inner_tooth_mm.mesh = inner_tooth_cyl
+    inner_tooth_mm.instance_count = inner_tooth_count
+
+    for ti in range(inner_tooth_count):
+        var ang: float = (float(ti) + 0.5) / float(inner_tooth_count) * TAU
+        var r_t: float = arena_rad * 0.94
+        var h_sc: float = 0.8 + 0.3 * abs(cos(ang * 5.0))
+        var pos := Vector3(cos(ang) * r_t, 5.5 * h_sc, sin(ang) * r_t)
+        var inward_dir := Vector3(-cos(ang), 0.0, -sin(ang))
+        var tilt_axis := inward_dir.cross(Vector3.UP).normalized()
+        var b := Basis(tilt_axis, -0.58).scaled(Vector3(1.0, h_sc, 1.0))
+        inner_tooth_mm.set_instance_transform(ti, Transform3D(b, pos))
+
+    var inner_teeth_mmi := MultiMeshInstance3D.new()
+    inner_teeth_mmi.name = "InnerGulletTeethMMI"
+    inner_teeth_mmi.multimesh = inner_tooth_mm
+    inner_teeth_mmi.material_override = fang_mat
+    lower_jaw.add_child(inner_teeth_mmi)
+
+    # =========================================================================
+    # 2. UPPER OVERARCHING PALATE JAW, CRANIAL RIBS & HANGING FANGS
+    # =========================================================================
+    var upper_jaw = Node3D.new()
+    upper_jaw.name = "UpperPalateRoot"
+    upper_jaw.position.y = 64.0
+    upper_jaw.set_meta("is_upper_jaw", true)
+    upper_jaw.set_meta("base_y", 64.0)
+    beast_root.add_child(upper_jaw)
+
+    var upper_rim = MeshInstance3D.new()
+    upper_rim.name = "UpperMawArchRim"
+    var u_torus = TorusMesh.new()
+    u_torus.inner_radius = arena_rad * 0.88
+    u_torus.outer_radius = arena_rad * 1.12
+    upper_rim.mesh = u_torus
+    upper_rim.material_override = maw_flesh_mat
+    upper_jaw.add_child(upper_rim)
+
+    # GPU Batch 3: 64 Hanging Upper Palate Fangs pointing down at the battlefield
+    var upper_fang_count: int = 64
+    var upper_fang_mm := MultiMesh.new()
+    upper_fang_mm.transform_format = MultiMesh.TRANSFORM_3D
+    var upper_fang_cyl := CylinderMesh.new()
+    upper_fang_cyl.top_radius = 3.6
+    upper_fang_cyl.bottom_radius = 0.0
+    upper_fang_cyl.height = 34.0
+    upper_fang_mm.mesh = upper_fang_cyl
+    upper_fang_mm.instance_count = upper_fang_count
+
+    for ufi in range(upper_fang_count):
+        var ang: float = (float(ufi) / float(upper_fang_count)) * TAU
+        var r_u: float = arena_rad * 0.98 + cos(ang * 4.0) * 3.0
+        var h_sc: float = 0.82 + 0.35 * abs(sin(ang * 3.0))
+        var pos := Vector3(cos(ang) * r_u, -13.0 * h_sc, sin(ang) * r_u)
+        var inward_dir := Vector3(-cos(ang), 0.0, -sin(ang))
+        var tilt_axis := inward_dir.cross(Vector3.UP).normalized()
+        var b := Basis(tilt_axis, 0.28).scaled(Vector3(1.0, h_sc, 1.0))
+        upper_fang_mm.set_instance_transform(ufi, Transform3D(b, pos))
+
+    var upper_fangs_mmi := MultiMeshInstance3D.new()
+    upper_fangs_mmi.name = "UpperPalateFangsMMI"
+    upper_fangs_mmi.multimesh = upper_fang_mm
+    upper_fangs_mmi.material_override = fang_mat
+    upper_jaw.add_child(upper_fangs_mmi)
+
+    # GPU Batch 4: 16 Overarching Cranial Palate Ribs curving high around the upper maw
+    var rib_count: int = 16
+    var rib_mm := MultiMesh.new()
+    rib_mm.transform_format = MultiMesh.TRANSFORM_3D
+    var rib_box := BoxMesh.new()
+    rib_box.size = Vector3(5.5, 8.0, arena_rad * 0.55)
+    rib_mm.mesh = rib_box
+    rib_mm.instance_count = rib_count
+    for ri in range(rib_count):
+        var ang: float = (float(ri) / float(rib_count)) * TAU
+        var r_mid: float = arena_rad * 0.92
+        var pos := Vector3(cos(ang) * r_mid, 14.0, sin(ang) * r_mid)
+        var b := Basis(Vector3.UP, -ang + PI * 0.5) * Basis(Vector3.RIGHT, 0.42)
+        rib_mm.set_instance_transform(ri, Transform3D(b, pos))
+
+    var ribs_mmi := MultiMeshInstance3D.new()
+    ribs_mmi.name = "PalateRibsMMI"
+    ribs_mmi.multimesh = rib_mm
+    ribs_mmi.material_override = maw_flesh_mat
+    upper_jaw.add_child(ribs_mmi)
+
+    # =========================================================================
+    # 3. 80 STARING LOVECRAFTIAN COSMIC EYES & SLIT PUPILS (GPU BATCHED)
+    # =========================================================================
+    var eye_count: int = 80
+    var eye_mat := StandardMaterial3D.new()
+    eye_mat.vertex_color_use_as_albedo = true
+    eye_mat.emission_enabled = true
+    eye_mat.emission = Color(0.95, 0.22, 0.45)
+    eye_mat.emission_energy_multiplier = 2.8
+
+    var pupil_mat := StandardMaterial3D.new()
+    pupil_mat.albedo_color = Color(0.02, 0.0, 0.04)
+    pupil_mat.roughness = 0.1
+
+    var eye_mm := MultiMesh.new()
+    eye_mm.transform_format = MultiMesh.TRANSFORM_3D
+    eye_mm.use_colors = true
+    var eye_sph := SphereMesh.new()
+    eye_sph.radius = 1.0
+    eye_sph.height = 2.0
+    eye_mm.mesh = eye_sph
+    eye_mm.instance_count = eye_count
+
+    var pupil_mm := MultiMesh.new()
+    pupil_mm.transform_format = MultiMesh.TRANSFORM_3D
+    var pupil_box := BoxMesh.new()
+    pupil_box.size = Vector3(0.28, 1.65, 0.35)
+    pupil_mm.mesh = pupil_box
+    pupil_mm.instance_count = eye_count
+
+    var eye_palette: Array[Color] = [
+        Color(1.0, 0.12, 0.28), # Eldritch Crimson
+        Color(1.0, 0.78, 0.14), # Madness Amber-Gold
+        Color(0.82, 0.16, 1.0), # Cosmic Void Violet
+        Color(0.25, 0.95, 0.68)  # Abyssal Bioluminescent Teal
+    ]
+
+    for ei in range(eye_count):
+        var ang: float = (float(ei) / float(eye_count)) * TAU + sin(float(ei) * 1.7) * 0.04
+        var tier: int = ei % 3
+        var e_rad: float = arena_rad * (1.06 if tier == 0 else (1.11 if tier == 1 else 0.98))
+        var e_y: float = (7.5 + sin(float(ei) * 2.3) * 4.5) if tier == 0 else ((24.0 + cos(float(ei) * 1.9) * 8.0) if tier == 1 else (52.0 + sin(float(ei) * 3.1) * 6.0))
+        var sc: float = 2.2 + float(ei % 5) * 0.65
+        var e_pos := Vector3(cos(ang) * e_rad, e_y, sin(ang) * e_rad)
+        var look_tf := Transform3D(Basis.IDENTITY, e_pos).looking_at(Vector3(0.0, 2.0, 0.0), Vector3.UP)
+        var scaled_tf := Transform3D(look_tf.basis.scaled(Vector3(sc, sc, sc * 0.65)), e_pos)
+        eye_mm.set_instance_transform(ei, scaled_tf)
+        eye_mm.set_instance_color(ei, eye_palette[ei % eye_palette.size()])
+
+        var p_pos := e_pos + (-look_tf.basis.z) * (sc * 0.58)
+        var pupil_tf := Transform3D(look_tf.basis.scaled(Vector3(sc, sc, sc * 0.5)), p_pos)
+        pupil_mm.set_instance_transform(ei, pupil_tf)
+
+    var eyes_mmi := MultiMeshInstance3D.new()
+    eyes_mmi.name = "EldritchMawEyesMMI"
+    eyes_mmi.multimesh = eye_mm
+    eyes_mmi.material_override = eye_mat
+    beast_root.add_child(eyes_mmi)
+
+    var pupils_mmi := MultiMeshInstance3D.new()
+    pupils_mmi.name = "EldritchPupilsMMI"
+    pupils_mmi.multimesh = pupil_mm
+    pupils_mmi.material_override = pupil_mat
+    beast_root.add_child(pupils_mmi)
+
+    # =========================================================================
+    # 4. 8 COLOSSAL WRITHING VOID TENTACLES ARCHING INWARD FROM THE MAW RIM
+    # =========================================================================
+    var tentacle_count: int = 8
+    for t_i in range(tentacle_count):
+        var ang: float = (float(t_i) / float(tentacle_count)) * TAU
+        var t_root := Node3D.new()
+        t_root.name = "MawTentacle_" + str(t_i)
+        var r_base: float = arena_rad * 1.08
+        var base_ty: float = 6.0
+        t_root.position = Vector3(cos(ang) * r_base, base_ty, sin(ang) * r_base)
+        var base_rx: float = -sin(ang) * 0.42
+        var base_rz: float = cos(ang) * 0.42
+        t_root.rotation.x = base_rx
+        t_root.rotation.z = base_rz
+        t_root.set_meta("base_y", base_ty)
+        t_root.set_meta("base_rx", base_rx)
+        t_root.set_meta("base_rz", base_rz)
+        t_root.set_meta("seg_phase", float(t_i) * 0.85)
+
+        # Connected base collar, lower trunk, mid coil, and tapered tip
+        var lower_seg := MeshInstance3D.new()
+        var l_cyl := CylinderMesh.new()
+        l_cyl.bottom_radius = 5.2
+        l_cyl.top_radius = 3.2
+        l_cyl.height = 28.0
+        lower_seg.mesh = l_cyl
+        lower_seg.material_override = maw_flesh_mat
+        lower_seg.position.y = 12.0
+        t_root.add_child(lower_seg)
+
+        var joint_knuckle := MeshInstance3D.new()
+        var j_sph := SphereMesh.new()
+        j_sph.radius = 3.4
+        j_sph.height = 6.8
+        joint_knuckle.mesh = j_sph
+        joint_knuckle.material_override = maw_flesh_mat
+        joint_knuckle.position.y = 26.0
+        t_root.add_child(joint_knuckle)
+
+        var upper_seg := MeshInstance3D.new()
+        var u_cyl := CylinderMesh.new()
+        u_cyl.bottom_radius = 3.1
+        u_cyl.top_radius = 0.4
+        u_cyl.height = 30.0
+        upper_seg.mesh = u_cyl
+        upper_seg.material_override = maw_flesh_mat
+        var inward := Vector3(-cos(ang), 0.0, -sin(ang))
+        upper_seg.position = Vector3(inward.x * 6.5, 38.0, inward.z * 6.5)
+        var t_axis := inward.cross(Vector3.UP).normalized()
+        upper_seg.transform.basis = Basis(t_axis, -0.48)
+        t_root.add_child(upper_seg)
+
+        beast_root.add_child(t_root)
 
     var tw = create_tween()
-    tw.tween_property(beast_root, "position:y", 4.0, 15.0)
+    tw.tween_property(beast_root, "position:y", 0.0, 10.0)
+
 
 @rpc("authority", "call_local", "reliable")
 func sync_spawn_hazard(rx: float, rz: float, is_mouth: bool, unique_name: String):
@@ -1240,13 +1712,18 @@ func sync_end_match(message: String, winning_team: String = ""):
     var my_team = "SideA"
     if players.size() == 1:
         my_team = players[0].team
+    elif GameState.local_player_team != "":
+        my_team = GameState.local_player_team
         
     var final_message = message
-    if winning_team != "" and players.size() == 1 and GameState.current_mode != "AI_VS_AI":
-        if winning_team == my_team:
-            final_message = "VICTORY! " + (message if not message.begins_with("DEFEAT") else "All opposing bases destroyed.")
+    if winning_team != "" and GameState.current_mode != "AI_VS_AI":
+        if players.size() == 1 or GameState.current_mode.begins_with("ONLINE"):
+            if winning_team == my_team:
+                final_message = "VICTORY! " + (message if not message.begins_with("DEFEAT") else "All opposing bases destroyed.")
+            else:
+                final_message = "DEFEAT! " + GameState.get_team_display_name(winning_team) + " is victorious."
         else:
-            final_message = "DEFEAT! " + winning_team + " is victorious."
+            final_message = "VICTORY FOR " + GameState.get_team_display_name(winning_team) + "!"
             
     print(final_message)
     var ui = get_node_or_null("InGameUI")
@@ -1272,7 +1749,7 @@ func sync_end_match(message: String, winning_team: String = ""):
 
 func _animate_faction_structures(delta):
     var t = Time.get_ticks_msec() * 0.001
-    for s in get_tree().get_nodes_in_group("Targetable"):
+    for s in get_tree().get_nodes_in_group("FactionStructures"):
         var f_mesh = s.get_meta("faction_mesh") if s.has_meta("faction_mesh") else null
         if f_mesh and is_instance_valid(f_mesh):
             if f_mesh.has_meta("reach_hover"):
@@ -1305,6 +1782,25 @@ func _animate_faction_structures(delta):
             if f_mesh.has_meta("pirate_crane"):
                 var node = f_mesh.get_meta("pirate_crane")
                 if is_instance_valid(node): node.rotation.y = sin(t * 0.5) * 0.4
+            if f_mesh.has_meta("plague_eye"):
+                var node = f_mesh.get_meta("plague_eye")
+                if is_instance_valid(node):
+                    node.rotation.y = sin(t * 1.4) * 0.65
+                    node.rotation.x = cos(t * 1.1) * 0.25
+            if f_mesh.has_meta("plague_core"):
+                var node = f_mesh.get_meta("plague_core")
+                if is_instance_valid(node):
+                    node.rotation.y += delta * 1.2
+            if f_mesh.has_meta("gilded_helix"):
+                var node = f_mesh.get_meta("gilded_helix")
+                if is_instance_valid(node):
+                    node.rotation.y += delta * 1.5
+            if f_mesh.has_meta("gilded_core"):
+                var node = f_mesh.get_meta("gilded_core")
+                if is_instance_valid(node):
+                    var pulse = 1.0 + sin(t * 2.8) * 0.08
+                    node.scale = Vector3(pulse, pulse, pulse)
+                    node.rotation.y -= delta * 0.9
 
 # =========================================================================
 # MAP BIOME & PROCEDURAL ENVIRONMENT GENERATION
@@ -1322,7 +1818,10 @@ func _apply_map_environment(biome_name: String, seed_val: int):
     _apply_biome_visuals(active_biome)
     
     var old_env = get_node_or_null("EnvironmentFeatures")
-    if old_env: old_env.queue_free()
+    if old_env:
+        old_env.name = "EnvironmentFeatures_Old"
+        remove_child(old_env)
+        old_env.queue_free()
     
     var env_root = Node3D.new()
     env_root.name = "EnvironmentFeatures"
@@ -1332,6 +1831,8 @@ func _apply_map_environment(biome_name: String, seed_val: int):
         _generate_sunny_plains(env_root)
     elif active_biome == "SCORCHING_DUNES":
         _generate_scorching_dunes(env_root)
+    elif active_biome == "REALM_OF_HARMONY":
+        _generate_realm_of_harmony(env_root)
 
 func _apply_biome_visuals(biome_name: String):
     var ground = get_node_or_null("Ground")
@@ -1391,6 +1892,37 @@ func _apply_biome_visuals(biome_name: String):
                 sky_mat.ground_horizon_color = Color(0.85, 0.62, 0.38)
         solar_beam_timer = randf_range(10.0, 25.0)
 
+    elif biome_name == "REALM_OF_HARMONY":
+        if ground:
+            var g_mesh = ground.get_node_or_null("MeshInstance3D")
+            if g_mesh:
+                var g_mat = StandardMaterial3D.new()
+                g_mat.albedo_color = Color(0.08, 0.06, 0.14) # Deep surreal canvas for multicolored lines
+                g_mat.roughness = 0.35
+                g_mat.metallic = 0.25
+                g_mesh.material_override = g_mat
+            for child in ground.get_children():
+                if child is MeshInstance3D and child.name.begins_with("Path"):
+                    var p_mat = StandardMaterial3D.new()
+                    p_mat.albedo_color = Color(1.0, 0.82, 0.18) # Gleaming Golden Path
+                    p_mat.metallic = 0.92
+                    p_mat.roughness = 0.18
+                    p_mat.emission_enabled = true
+                    p_mat.emission = Color(1.0, 0.76, 0.14)
+                    p_mat.emission_energy_multiplier = 0.65
+                    child.material_override = p_mat
+        if dir_light:
+            dir_light.light_color = Color(1.0, 0.95, 0.82)
+            dir_light.light_energy = 1.30
+            dir_light.shadow_enabled = true
+        if world_env and world_env.environment and world_env.environment.sky:
+            var sky_mat = world_env.environment.sky.sky_material
+            if sky_mat is ProceduralSkyMaterial:
+                sky_mat.sky_top_color = Color(0.22, 0.12, 0.44)
+                sky_mat.sky_horizon_color = Color(1.0, 0.82, 0.32)
+                sky_mat.ground_bottom_color = Color(0.08, 0.05, 0.14)
+                sky_mat.ground_horizon_color = Color(0.92, 0.72, 0.28)
+
 func _get_clear_hazard_pos(map_size: float) -> Vector3:
     var attempts = 0
     while attempts < 35:
@@ -1421,7 +1953,7 @@ func _get_clear_hazard_pos(map_size: float) -> Vector3:
     return Vector3(randf_range(-map_size * 0.6, map_size * 0.6), 0.0, randf_range(-map_size * 0.6, map_size * 0.6))
 
 func _is_pos_clear(pos: Vector3, min_path_dist: float, min_struct_dist: float, self_radius: float = 3.0) -> bool:
-    var max_extent = 120.0 if GameState.map_selected == "Arena_6P.tscn" else 82.0
+    var max_extent = maxf(82.0, GameState.current_map_radius * 0.72)
     if abs(pos.x) > max_extent or abs(pos.z) > max_extent: return false
     
     var tree = get_tree()
@@ -1432,11 +1964,11 @@ func _is_pos_clear(pos: Vector3, min_path_dist: float, min_struct_dist: float, s
                 if pos.distance_to(node.global_position) < min_struct_dist + self_radius + 2.0:
                     return false
                 
-    if GameState.game_mode == "KOTH" or get_node_or_null("KotH_Zone") != null:
+    if GameState.is_koth_mode() or get_node_or_null("KotH_Zone") != null:
         if pos.distance_to(Vector3.ZERO) < 22.0 + self_radius:
             return false
 
-    var min_center_clearance = 24.0 if GameState.map_selected == "Arena_6P.tscn" else (20.0 if GameState.map_selected == "Arena_4P.tscn" else 18.0)
+    var min_center_clearance = 20.0
     if pos.length() < (min_center_clearance + self_radius):
         return false
 
@@ -1451,28 +1983,104 @@ func _is_pos_clear(pos: Vector3, min_path_dist: float, min_struct_dist: float, s
                 
     return true
 
-# --- Sunny Plains Generation ---
+# --- Sunny Plains Generation (GPU MultiMesh Batched) ---
+var _pending_tree_trunk_tfs: Array[Transform3D] = []
+var _pending_tree_trunk_cols: Array[Color] = []
+var _pending_tree_foliage_tfs: Array[Transform3D] = []
+var _pending_tree_foliage_cols: Array[Color] = []
+var _pending_pine_cone_tfs: Array[Transform3D] = []
+
 func _generate_sunny_plains(parent: Node3D):
     placed_feature_records.clear()
+    _pending_tree_trunk_tfs.clear()
+    _pending_tree_trunk_cols.clear()
+    _pending_tree_foliage_tfs.clear()
+    _pending_tree_foliage_cols.clear()
+    _pending_pine_cone_tfs.clear()
+    var span = maxf(75.0, GameState.current_map_radius * 0.65)
     
-    var tree_count = randi_range(26, 34)
+    var tree_count = randi_range(26, 36)
     var attempts = 0
     var placed_trees = 0
     while placed_trees < tree_count and attempts < 300:
         attempts += 1
-        var candidate = Vector3(randf_range(-75.0, 75.0), 0.0, randf_range(-75.0, 75.0))
+        var candidate = Vector3(randf_range(-span, span), 0.0, randf_range(-span, span))
         if _is_pos_clear(candidate, 5.0, 14.0, 3.2):
             _create_procedural_tree(parent, candidate)
             placed_feature_records.append({"pos": candidate, "radius": 3.2, "type": "tree"})
             placed_trees += 1
+
+    # Flush batched GPU MultiMeshInstance3D nodes for all placed trees
+    if _pending_tree_trunk_tfs.size() > 0:
+        var bark_mat := StandardMaterial3D.new()
+        bark_mat.vertex_color_use_as_albedo = true
+        bark_mat.roughness = 0.85
+        var trunk_cyl := CylinderMesh.new()
+        trunk_cyl.top_radius = 0.28
+        trunk_cyl.bottom_radius = 0.42
+        trunk_cyl.height = 3.2
+        var trunk_mm := MultiMesh.new()
+        trunk_mm.transform_format = MultiMesh.TRANSFORM_3D
+        trunk_mm.use_colors = true
+        trunk_mm.mesh = trunk_cyl
+        trunk_mm.instance_count = _pending_tree_trunk_tfs.size()
+        for idx in range(_pending_tree_trunk_tfs.size()):
+            trunk_mm.set_instance_transform(idx, _pending_tree_trunk_tfs[idx])
+            trunk_mm.set_instance_color(idx, _pending_tree_trunk_cols[idx])
+        var trunks_mmi := MultiMeshInstance3D.new()
+        trunks_mmi.name = "TreeTrunksMMI"
+        trunks_mmi.multimesh = trunk_mm
+        trunks_mmi.material_override = bark_mat
+        parent.add_child(trunks_mmi)
+
+    if _pending_tree_foliage_tfs.size() > 0:
+        var leaf_mat := StandardMaterial3D.new()
+        leaf_mat.vertex_color_use_as_albedo = true
+        leaf_mat.roughness = 0.75
+        var leaf_sph := SphereMesh.new()
+        leaf_sph.radius = 1.3
+        leaf_sph.height = 2.4
+        var leaf_mm := MultiMesh.new()
+        leaf_mm.transform_format = MultiMesh.TRANSFORM_3D
+        leaf_mm.use_colors = true
+        leaf_mm.mesh = leaf_sph
+        leaf_mm.instance_count = _pending_tree_foliage_tfs.size()
+        for idx in range(_pending_tree_foliage_tfs.size()):
+            leaf_mm.set_instance_transform(idx, _pending_tree_foliage_tfs[idx])
+            leaf_mm.set_instance_color(idx, _pending_tree_foliage_cols[idx])
+        var foliage_mmi := MultiMeshInstance3D.new()
+        foliage_mmi.name = "TreeFoliageSpheresMMI"
+        foliage_mmi.multimesh = leaf_mm
+        foliage_mmi.material_override = leaf_mat
+        parent.add_child(foliage_mmi)
+
+    if _pending_pine_cone_tfs.size() > 0:
+        var pine_mat := StandardMaterial3D.new()
+        pine_mat.albedo_color = Color(0.14, 0.42, 0.18)
+        pine_mat.roughness = 0.8
+        var cone_cyl := CylinderMesh.new()
+        cone_cyl.top_radius = 0.04
+        cone_cyl.bottom_radius = 1.0
+        cone_cyl.height = 1.0
+        var pine_mm := MultiMesh.new()
+        pine_mm.transform_format = MultiMesh.TRANSFORM_3D
+        pine_mm.mesh = cone_cyl
+        pine_mm.instance_count = _pending_pine_cone_tfs.size()
+        for idx in range(_pending_pine_cone_tfs.size()):
+            pine_mm.set_instance_transform(idx, _pending_pine_cone_tfs[idx])
+        var pine_mmi := MultiMeshInstance3D.new()
+        pine_mmi.name = "PineConesMMI"
+        pine_mmi.multimesh = pine_mm
+        pine_mmi.material_override = pine_mat
+        parent.add_child(pine_mmi)
             
-    var brush_count = randi_range(8, 12)
+    var brush_count = randi_range(8, 14)
     attempts = 0
     var placed_brush = 0
     while placed_brush < brush_count and attempts < 250:
         attempts += 1
         var side = -1.0 if randf() < 0.5 else 1.0
-        var candidate = Vector3(side * randf_range(18.0, 55.0), 0.0, randf_range(-60.0, 60.0))
+        var candidate = Vector3(side * randf_range(18.0, span * 0.78), 0.0, randf_range(-span * 0.8, span * 0.8))
         if _is_pos_clear(candidate, 3.0, 12.0, 6.0):
             var brush = StealthBrushScript.new()
             brush.position = candidate
@@ -1497,73 +2105,46 @@ func _create_procedural_tree(parent: Node3D, pos: Vector3):
     
     var style = randi() % 3
     var scale_var = randf_range(0.85, 1.3)
+    var rot_y = randf() * TAU
     tree_root.scale = Vector3(scale_var, scale_var, scale_var)
-    tree_root.rotation.y = randf() * TAU
-    
-    var bark_mat = StandardMaterial3D.new()
-    bark_mat.albedo_color = Color(0.36, 0.22, 0.12) if style != 2 else Color(0.82, 0.82, 0.78)
-    bark_mat.roughness = 0.85
-    
-    var trunk = MeshInstance3D.new()
-    var trunk_mesh = CylinderMesh.new()
-    trunk_mesh.top_radius = 0.28
-    trunk_mesh.bottom_radius = 0.42
-    trunk_mesh.height = 3.2
-    trunk.mesh = trunk_mesh
-    trunk.material_override = bark_mat
-    trunk.position.y = 1.6
-    tree_root.add_child(trunk)
-    
+    tree_root.rotation.y = rot_y
+    parent.add_child(tree_root)
+
+    var tree_basis := Basis(Vector3.UP, rot_y).scaled(Vector3(scale_var, scale_var, scale_var))
+    var tree_tf := Transform3D(tree_basis, pos)
+
+    var bark_col: Color = Color(0.36, 0.22, 0.12) if style != 2 else Color(0.82, 0.82, 0.78)
+    _pending_tree_trunk_tfs.append(tree_tf * Transform3D(Basis.IDENTITY, Vector3(0.0, 1.6, 0.0)))
+    _pending_tree_trunk_cols.append(bark_col)
+
     if style == 0:
-        var leaf_mat = StandardMaterial3D.new()
-        leaf_mat.albedo_color = Color(0.20, 0.56, 0.16)
-        leaf_mat.roughness = 0.75
+        var oak_col := Color(0.20, 0.56, 0.16)
         for f_pos in [Vector3(0, 3.4, 0), Vector3(0.6, 3.8, 0.4), Vector3(-0.5, 3.6, -0.4)]:
-            var leaves = MeshInstance3D.new()
-            var sph = SphereMesh.new()
-            sph.radius = 1.3
-            sph.height = 2.4
-            leaves.mesh = sph
-            leaves.material_override = leaf_mat
-            leaves.position = f_pos
-            tree_root.add_child(leaves)
+            _pending_tree_foliage_tfs.append(tree_tf * Transform3D(Basis.IDENTITY, f_pos))
+            _pending_tree_foliage_cols.append(oak_col)
     elif style == 1:
-        var pine_mat = StandardMaterial3D.new()
-        pine_mat.albedo_color = Color(0.14, 0.42, 0.18)
-        pine_mat.roughness = 0.8
         var tiers = [
             {"r": 1.6, "y": 2.6, "h": 1.4},
             {"r": 1.2, "y": 3.6, "h": 1.3},
             {"r": 0.8, "y": 4.5, "h": 1.2}
         ]
         for t in tiers:
-            var cone = MeshInstance3D.new()
-            var c_mesh = CylinderMesh.new()
-            c_mesh.top_radius = 0.05
-            c_mesh.bottom_radius = t["r"]
-            c_mesh.height = t["h"]
-            cone.mesh = c_mesh
-            cone.material_override = pine_mat
-            cone.position.y = t["y"]
-            tree_root.add_child(cone)
+            var c_basis := Basis.IDENTITY.scaled(Vector3(float(t["r"]), float(t["h"]), float(t["r"])))
+            _pending_pine_cone_tfs.append(tree_tf * Transform3D(c_basis, Vector3(0.0, float(t["y"]), 0.0)))
     else:
-        var birch_mat = StandardMaterial3D.new()
-        birch_mat.albedo_color = Color(0.32, 0.66, 0.22)
-        birch_mat.roughness = 0.75
-        var crown = MeshInstance3D.new()
-        var sph = SphereMesh.new()
-        sph.radius = 1.5
-        sph.height = 2.6
-        crown.mesh = sph
-        crown.material_override = birch_mat
-        crown.position.y = 3.8
-        tree_root.add_child(crown)
-        
-    parent.add_child(tree_root)
+        var birch_col := Color(0.32, 0.66, 0.22)
+        var crown_basis := Basis.IDENTITY.scaled(Vector3(1.15, 1.08, 1.15))
+        _pending_tree_foliage_tfs.append(tree_tf * Transform3D(crown_basis, Vector3(0.0, 3.8, 0.0)))
+        _pending_tree_foliage_cols.append(birch_col)
 
-# --- Scorching Sand Dunes Generation ---
+# --- Scorching Sand Dunes Generation (GPU MultiMesh Batched) ---
+var _pending_sand_dune_tfs: Array[Transform3D] = []
+var _pending_pit_rock_tfs: Array[Transform3D] = []
+
 func _generate_scorching_dunes(parent: Node3D):
     placed_feature_records.clear()
+    _pending_sand_dune_tfs.clear()
+    _pending_pit_rock_tfs.clear()
     var attempts = 0
     
     # 1. Scorpion Pits (2 territorial pits, each with 15 scorpions) - GUARANTEED PLACEMENT
@@ -1648,7 +2229,7 @@ func _generate_scorching_dunes(parent: Node3D):
     var dune_count = randi_range(14, 18)
     attempts = 0
     var placed_dunes = 0
-    var max_extent = 110.0 if GameState.map_selected == "Arena_6P.tscn" else 75.0
+    var max_extent = maxf(75.0, GameState.current_map_radius * 0.65)
     while placed_dunes < dune_count and attempts < 400:
         attempts += 1
         var candidate = Vector3(randf_range(-max_extent, max_extent), 0.0, randf_range(-max_extent, max_extent))
@@ -1656,6 +2237,45 @@ func _generate_scorching_dunes(parent: Node3D):
             _create_sand_dune_blocker(parent, candidate)
             placed_feature_records.append({"pos": candidate, "radius": 8.5, "type": "dune"})
             placed_dunes += 1
+
+    # Flush batched GPU MultiMeshInstance3D nodes for sand dunes and scorpion pit rocks
+    if _pending_sand_dune_tfs.size() > 0:
+        var dune_mat := StandardMaterial3D.new()
+        dune_mat.albedo_color = Color(0.86, 0.70, 0.42)
+        dune_mat.roughness = 0.95
+        var c_mesh := CylinderMesh.new()
+        c_mesh.top_radius = 0.25
+        c_mesh.bottom_radius = 1.0
+        c_mesh.height = 1.0
+        var dune_mm := MultiMesh.new()
+        dune_mm.transform_format = MultiMesh.TRANSFORM_3D
+        dune_mm.mesh = c_mesh
+        dune_mm.instance_count = _pending_sand_dune_tfs.size()
+        for idx in range(_pending_sand_dune_tfs.size()):
+            dune_mm.set_instance_transform(idx, _pending_sand_dune_tfs[idx])
+        var dunes_mmi := MultiMeshInstance3D.new()
+        dunes_mmi.name = "SandDunesMMI"
+        dunes_mmi.multimesh = dune_mm
+        dunes_mmi.material_override = dune_mat
+        parent.add_child(dunes_mmi)
+
+    if _pending_pit_rock_tfs.size() > 0:
+        var rock_mat := StandardMaterial3D.new()
+        rock_mat.albedo_color = Color(0.72, 0.55, 0.40)
+        rock_mat.roughness = 0.8
+        var r_box := BoxMesh.new()
+        r_box.size = Vector3(1.0, 1.0, 1.0)
+        var rock_mm := MultiMesh.new()
+        rock_mm.transform_format = MultiMesh.TRANSFORM_3D
+        rock_mm.mesh = r_box
+        rock_mm.instance_count = _pending_pit_rock_tfs.size()
+        for idx in range(_pending_pit_rock_tfs.size()):
+            rock_mm.set_instance_transform(idx, _pending_pit_rock_tfs[idx])
+        var rocks_mmi := MultiMeshInstance3D.new()
+        rocks_mmi.name = "PitRocksMMI"
+        rocks_mmi.multimesh = rock_mm
+        rocks_mmi.material_override = rock_mat
+        parent.add_child(rocks_mmi)
 
 func _create_sand_dune_blocker(parent: Node3D, pos: Vector3):
     var dune = StaticBody3D.new()
@@ -1674,23 +2294,14 @@ func _create_sand_dune_blocker(parent: Node3D, pos: Vector3):
     col.position.y = h * 0.5
     dune.add_child(col)
     
-    var dune_mesh = MeshInstance3D.new()
-    var c_mesh = CylinderMesh.new()
-    c_mesh.top_radius = r_base * 0.25
-    c_mesh.bottom_radius = r_base
-    c_mesh.height = h
-    dune_mesh.mesh = c_mesh
-    
-    var dune_mat = StandardMaterial3D.new()
-    dune_mat.albedo_color = Color(0.86, 0.70, 0.42)
-    dune_mat.roughness = 0.95
-    dune_mesh.material_override = dune_mat
-    dune_mesh.position.y = h * 0.5
-    dune_mesh.rotation.y = randf() * TAU
-    dune.add_child(dune_mesh)
-    
-    dune.scale = Vector3(randf_range(1.1, 1.6), 1.0, randf_range(0.8, 1.2))
+    var sx = randf_range(1.1, 1.6)
+    var sz = randf_range(0.8, 1.2)
+    dune.scale = Vector3(sx, 1.0, sz)
     parent.add_child(dune)
+
+    var rot_y = randf() * TAU
+    var dune_basis := Basis(Vector3.UP, rot_y).scaled(Vector3(r_base * sx, h, r_base * sz))
+    _pending_sand_dune_tfs.append(Transform3D(dune_basis, pos + Vector3(0.0, h * 0.5, 0.0)))
 
 func _create_scorpion_pit(parent: Node3D, pos: Vector3):
     var pit_body = StaticBody3D.new()
@@ -1727,20 +2338,13 @@ func _create_scorpion_pit(parent: Node3D, pos: Vector3):
     pit_floor.position.y = 0.06
     pit_body.add_child(pit_floor)
     
-    var rock_mat = StandardMaterial3D.new()
-    rock_mat.albedo_color = Color(0.72, 0.55, 0.40)
-    rock_mat.roughness = 0.8
     for r in range(8):
         var ang = (TAU / 8.0) * r + randf_range(-0.15, 0.15)
-        var rock = MeshInstance3D.new()
-        var r_box = BoxMesh.new()
         var r_sz = randf_range(1.0, 1.8)
-        r_box.size = Vector3(r_sz, randf_range(0.6, 1.2), r_sz)
-        rock.mesh = r_box
-        rock.material_override = rock_mat
-        rock.position = Vector3(cos(ang) * 5.8, 0.4, sin(ang) * 5.8)
-        rock.rotation = Vector3(randf() * 0.4, randf() * TAU, randf() * 0.4)
-        pit_body.add_child(rock)
+        var r_h = randf_range(0.6, 1.2)
+        var r_pos = pos + Vector3(cos(ang) * 5.8, 0.4, sin(ang) * 5.8)
+        var r_basis = Basis.from_euler(Vector3(randf() * 0.4, randf() * TAU, randf() * 0.4)).scaled(Vector3(r_sz, r_h, r_sz))
+        _pending_pit_rock_tfs.append(Transform3D(r_basis, r_pos))
         
     # Initial scorpions (15 scorpions)
     for s in range(15):
@@ -1876,11 +2480,16 @@ func _on_solar_beam_finished():
 static func is_unit_stealthed_from(target: Node3D, observer: Node3D) -> bool:
     return GameState.is_unit_stealthed_from(target, observer)
 
+var _stealth_vis_timer: float = 0.0
+
 func _update_stealth_visibility():
-    var local_team = ""
-    if players.size() > 0:
-        local_team = players[0].team
+    _stealth_vis_timer -= get_process_delta_time()
+    if _stealth_vis_timer > 0.0: return
+    _stealth_vis_timer = 0.08
+    
+    var local_team = GameState.local_player_team if GameState.local_player_team != "" else (players[0].team if players.size() > 0 else "")
     var is_spectator = (GameState.current_mode == "AI_VS_AI")
+    var local_allies = get_tree().get_nodes_in_group(local_team) if (local_team != "" and not is_spectator) else []
     
     for unit in get_tree().get_nodes_in_group("Targetable"):
         if not is_instance_valid(unit): continue
@@ -1892,17 +2501,350 @@ func _update_stealth_visibility():
             if is_spectator:
                 unit.visible = true
                 continue
+            if unit.has_meta("stealth_revealed_timer") and unit.get_meta("stealth_revealed_timer", 0.0) > 0.0:
+                unit.visible = true
+                continue
             if local_team != "" and unit.is_in_group(local_team):
                 unit.visible = true
             else:
                 var revealed = false
-                if local_team != "":
-                    for ally in get_tree().get_nodes_in_group(local_team):
-                        if is_instance_valid(ally) and ally != unit:
-                            if ally.global_position.distance_to(unit.global_position) <= 4.0:
-                                revealed = true
-                                break
+                var u_pos = unit.global_position
+                for ally in local_allies:
+                    if is_instance_valid(ally) and ally != unit:
+                        if ally.global_position.distance_to(u_pos) <= 4.0:
+                            revealed = true
+                            break
                 unit.visible = revealed
         else:
             unit.visible = true
+
+# =========================================================================
+# THE REALM OF HARMONY: GOLD FACE PATHS, MULTICOLORED LINES & OFF-PATH HUSKS
+# =========================================================================
+
+func _generate_realm_of_harmony(parent: Node3D) -> void:
+    placed_feature_records.clear()
+
+    # 1. Paths made up of sculpted 3D Gold Faces
+    var faces_root := Node3D.new()
+    faces_root.name = "GoldPathFaces"
+    parent.add_child(faces_root)
+
+    var gold_face_mat := StandardMaterial3D.new()
+    gold_face_mat.albedo_color = Color(1.0, 0.85, 0.22)
+    gold_face_mat.metallic = 0.96
+    gold_face_mat.roughness = 0.14
+    gold_face_mat.emission_enabled = true
+    gold_face_mat.emission = Color(1.0, 0.78, 0.16)
+    gold_face_mat.emission_energy_multiplier = 1.35
+
+    var gold_feature_mat := StandardMaterial3D.new()
+    gold_feature_mat.albedo_color = Color(1.0, 0.92, 0.42)
+    gold_feature_mat.metallic = 0.98
+    gold_feature_mat.roughness = 0.10
+    gold_feature_mat.emission_enabled = true
+    gold_feature_mat.emission = Color(1.0, 0.86, 0.28)
+    gold_feature_mat.emission_energy_multiplier = 2.1
+
+    var face_transforms: Array[Transform3D] = []
+    if GameState.lane_segments.size() > 0:
+        var step_len: float = 7.0 if GameState.lane_segments.size() <= 12 else 11.0
+        for seg in GameState.lane_segments:
+            var a3: Vector3 = seg.get("a", Vector3.ZERO)
+            var b3: Vector3 = seg.get("b", Vector3.ZERO)
+            var w_lane: float = float(seg.get("width", 20.0))
+            var diff: Vector3 = b3 - a3
+            var seg_len: float = diff.length()
+            if seg_len < 1.0:
+                continue
+            var dir_z: Vector3 = diff / seg_len
+            var dir_x := Vector3(-dir_z.z, 0.0, dir_z.x)
+            var steps: int = maxi(2, int(floor(seg_len / step_len)))
+            var cols: int = 2 if w_lane < 19.0 else 3
+            for s_i in range(steps):
+                var lz: float = (float(s_i) + 0.5) * (seg_len / float(steps)) + randf_range(-0.7, 0.7)
+                for c_i in range(-cols + 1, cols):
+                    var lx: float = float(c_i) * 4.5 + randf_range(-0.6, 0.6)
+                    var world_p: Vector3 = a3 + dir_z * lz + dir_x * lx
+                    var yaw: float = randf() * TAU
+                    var sc: float = randf_range(1.18, 1.92)
+                    var b := Basis(Vector3.UP, yaw).scaled(Vector3(sc, 1.0, sc * 1.18))
+                    face_transforms.append(Transform3D(b, Vector3(world_p.x, 0.06, world_p.z)))
+                    if face_transforms.size() >= 900:
+                        break
+                if face_transforms.size() >= 900:
+                    break
+            if face_transforms.size() >= 900:
+                break
+    else:
+        for z_step in range(-72, 74, 5):
+            for x_idx in range(-2, 3):
+                var px: float = float(x_idx) * 4.6 + randf_range(-0.75, 0.75)
+                var pz: float = float(z_step) + randf_range(-0.75, 0.75)
+                var yaw: float = randf() * TAU
+                var sc: float = randf_range(1.25, 2.05)
+                var b := Basis(Vector3.UP, yaw).scaled(Vector3(sc, 1.0, sc * 1.2))
+                face_transforms.append(Transform3D(b, Vector3(px, 0.06, pz)))
+
+    var total_faces: int = face_transforms.size()
+    if total_faces > 0:
+        # MultiMesh 1: Sculpted Gold Face Plate
+        var plate_mm := MultiMesh.new()
+        plate_mm.transform_format = MultiMesh.TRANSFORM_3D
+        var plate_cyl := CylinderMesh.new()
+        plate_cyl.top_radius = 1.15
+        plate_cyl.bottom_radius = 1.25
+        plate_cyl.height = 0.09
+        plate_mm.mesh = plate_cyl
+        plate_mm.instance_count = total_faces
+
+        # MultiMesh 2 & 3: Left and Right Gold Eyes
+        var eye_l_mm := MultiMesh.new()
+        eye_l_mm.transform_format = MultiMesh.TRANSFORM_3D
+        var eye_sph := SphereMesh.new()
+        eye_sph.radius = 0.24
+        eye_sph.height = 0.18
+        eye_l_mm.mesh = eye_sph
+        eye_l_mm.instance_count = total_faces
+
+        var eye_r_mm := MultiMesh.new()
+        eye_r_mm.transform_format = MultiMesh.TRANSFORM_3D
+        eye_r_mm.mesh = eye_sph
+        eye_r_mm.instance_count = total_faces
+
+        # MultiMesh 4: Sculpted Gold Nose Bridge
+        var nose_mm := MultiMesh.new()
+        nose_mm.transform_format = MultiMesh.TRANSFORM_3D
+        var nose_prism := PrismMesh.new()
+        nose_prism.size = Vector3(0.24, 0.16, 0.42)
+        nose_mm.mesh = nose_prism
+        nose_mm.instance_count = total_faces
+
+        # MultiMesh 5: Sculpted Gold Mouth / Lips
+        var mouth_mm := MultiMesh.new()
+        mouth_mm.transform_format = MultiMesh.TRANSFORM_3D
+        var mouth_box := BoxMesh.new()
+        mouth_box.size = Vector3(0.62, 0.12, 0.20)
+        mouth_mm.mesh = mouth_box
+        mouth_mm.instance_count = total_faces
+
+        for idx in range(total_faces):
+            var tf: Transform3D = face_transforms[idx]
+            plate_mm.set_instance_transform(idx, tf)
+            eye_l_mm.set_instance_transform(idx, tf * Transform3D(Basis.IDENTITY, Vector3(-0.38, 0.06, -0.26)))
+            eye_r_mm.set_instance_transform(idx, tf * Transform3D(Basis.IDENTITY, Vector3(0.38, 0.06, -0.26)))
+            nose_mm.set_instance_transform(idx, tf * Transform3D(Basis.IDENTITY, Vector3(0.0, 0.07, 0.02)))
+            mouth_mm.set_instance_transform(idx, tf * Transform3D(Basis.IDENTITY, Vector3(0.0, 0.06, 0.44)))
+
+        var plate_mmi := MultiMeshInstance3D.new()
+        plate_mmi.name = "FacePlatesMMI"
+        plate_mmi.multimesh = plate_mm
+        plate_mmi.material_override = gold_face_mat
+        faces_root.add_child(plate_mmi)
+
+        var eye_l_mmi := MultiMeshInstance3D.new()
+        eye_l_mmi.name = "LeftEyesMMI"
+        eye_l_mmi.multimesh = eye_l_mm
+        eye_l_mmi.material_override = gold_feature_mat
+        faces_root.add_child(eye_l_mmi)
+
+        var eye_r_mmi := MultiMeshInstance3D.new()
+        eye_r_mmi.name = "RightEyesMMI"
+        eye_r_mmi.multimesh = eye_r_mm
+        eye_r_mmi.material_override = gold_feature_mat
+        faces_root.add_child(eye_r_mmi)
+
+        var nose_mmi := MultiMeshInstance3D.new()
+        nose_mmi.name = "NosesMMI"
+        nose_mmi.multimesh = nose_mm
+        nose_mmi.material_override = gold_feature_mat
+        faces_root.add_child(nose_mmi)
+
+        var mouth_mmi := MultiMeshInstance3D.new()
+        mouth_mmi.name = "MouthsMMI"
+        mouth_mmi.multimesh = mouth_mm
+        mouth_mmi.material_override = gold_feature_mat
+        faces_root.add_child(mouth_mmi)
+
+    # 2. Surrounding off-path area: 120 multicolored lines batched into a single GPU MultiMeshInstance3D
+    var lines_root := Node3D.new()
+    lines_root.name = "HarmonyColoredLines"
+    parent.add_child(lines_root)
+
+    var line_palette: Array[Color] = [
+        Color(1.0, 0.14, 0.32), # Crimson Red
+        Color(0.08, 0.92, 1.0), # Electric Cyan
+        Color(0.22, 1.0, 0.36), # Emerald Neon Green
+        Color(1.0, 0.18, 0.88), # Vivid Magenta
+        Color(0.28, 0.46, 1.0), # Cobalt Blue
+        Color(1.0, 0.54, 0.08), # Tangerine Orange
+        Color(0.68, 0.22, 1.0), # Royal Violet
+        Color(0.75, 1.0, 0.12), # Chartreuse Lime
+        Color(0.12, 0.96, 0.72), # Aquamarine
+        Color(1.0, 0.36, 0.62), # Hot Rose
+        Color(1.0, 0.92, 0.18), # Solar Yellow
+        Color(0.45, 0.78, 1.0)  # Sky Azure
+    ]
+
+    var max_bound: float = maxf(88.0, GameState.current_map_radius * 0.72)
+    var line_count: int = 120
+    var line_tfs: Array[Transform3D] = []
+    var line_cols: Array[Color] = []
+    var created_lines: int = 0
+    var line_attempts: int = 0
+    while created_lines < line_count and line_attempts < 500:
+        line_attempts += 1
+        var cx: float = randf_range(-max_bound, max_bound)
+        var cz: float = randf_range(-max_bound, max_bound)
+        var center_pos := Vector3(cx, 0.03 + float(created_lines % 5) * 0.003, cz)
+        if GameState.get_distance_to_nearest_lane(center_pos) < 16.5:
+            continue
+
+        var line_len: float = randf_range(14.0, 48.0)
+        var line_width: float = randf_range(0.32, 0.72)
+        var yaw_angle: float = randf() * TAU
+
+        # Ensure endpoints also don't cross right over the center of the golden path
+        var dir_vec := Vector3(sin(yaw_angle), 0.0, cos(yaw_angle))
+        var end_a: Vector3 = center_pos + dir_vec * (line_len * 0.45)
+        var end_b: Vector3 = center_pos - dir_vec * (line_len * 0.45)
+        if GameState.get_distance_to_nearest_lane(end_a) < 13.5 or GameState.get_distance_to_nearest_lane(end_b) < 13.5:
+            line_len *= 0.45
+
+        var l_basis := Basis(Vector3.UP, yaw_angle).scaled(Vector3(line_width, 1.0, line_len))
+        line_tfs.append(Transform3D(l_basis, center_pos))
+        line_cols.append(line_palette[created_lines % line_palette.size()])
+        created_lines += 1
+
+    if line_tfs.size() > 0:
+        var batched_line_mat := StandardMaterial3D.new()
+        batched_line_mat.vertex_color_use_as_albedo = true
+        batched_line_mat.roughness = 0.2
+        batched_line_mat.emission_enabled = true
+        batched_line_mat.emission = Color(0.65, 0.65, 0.65)
+        batched_line_mat.emission_energy_multiplier = 1.65
+
+        var unit_line_box := BoxMesh.new()
+        unit_line_box.size = Vector3(1.0, 0.04, 1.0)
+
+        var lines_mm := MultiMesh.new()
+        lines_mm.transform_format = MultiMesh.TRANSFORM_3D
+        lines_mm.use_colors = true
+        lines_mm.mesh = unit_line_box
+        lines_mm.instance_count = line_tfs.size()
+        for idx in range(line_tfs.size()):
+            lines_mm.set_instance_transform(idx, line_tfs[idx])
+            lines_mm.set_instance_color(idx, line_cols[idx])
+
+        var lines_mmi := MultiMeshInstance3D.new()
+        lines_mmi.name = "ColoredLinesMMI"
+        lines_mmi.multimesh = lines_mm
+        lines_mmi.material_override = batched_line_mat
+        lines_root.add_child(lines_mmi)
+
+    # 3. Spawn 2 initial roaming Beasts of Harmony (1 Melee many-eyed eater, 1 Ranged eye-laser) in the off-path expanse
+    var initial_positions: Array[Vector3] = [
+        Vector3(-48.0, 0.2, -24.0),
+        Vector3(48.0, 0.2, 24.0)
+    ]
+    var variants: Array[String] = ["MELEE", "RANGED"]
+    for b_idx in range(2):
+        var beast := BeastOfHarmonyScript.new()
+        beast.name = "BeastOfHarmony_" + variants[b_idx] + "_Init_" + str(b_idx)
+        parent.add_child(beast)
+        beast.configure_beast(variants[b_idx], initial_positions[b_idx])
+
+    # 4. Spawn 2 roaming Harmony Infectors on The Realm of Harmony map that convert units into their Husk form
+    var infector_positions: Array[Vector3] = [
+        Vector3(-36.0, 0.2, 28.0),
+        Vector3(36.0, 0.2, -28.0)
+    ]
+    for inf_idx in range(2):
+        var infector := HarmonyInfectorScript.new()
+        infector.name = "RealmHarmonyInfector_" + str(inf_idx)
+        infector.team = "SideHarmony"
+        infector.is_gilded = false
+        infector.position = infector_positions[inf_idx]
+        parent.add_child(infector)
+
+var _harmony_check_timer: float = 0.0
+
+func _update_realm_of_harmony(delta: float) -> void:
+    if multiplayer.has_multiplayer_peer() and multiplayer.multiplayer_peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED:
+        if not multiplayer.is_server():
+            return
+
+    _harmony_check_timer += delta
+    if _harmony_check_timer < 0.25:
+        return
+    var step_dt: float = _harmony_check_timer
+    _harmony_check_timer = 0.0
+
+    var seen_ids := {}
+    var candidates: Array[Node] = []
+    for n in get_tree().get_nodes_in_group("Targetable"):
+        if is_instance_valid(n):
+            seen_ids[n.get_instance_id()] = true
+            candidates.append(n)
+    for extra in get_tree().get_nodes_in_group("Units"):
+        if is_instance_valid(extra) and not seen_ids.has(extra.get_instance_id()):
+            seen_ids[extra.get_instance_id()] = true
+            candidates.append(extra)
+
+    for node in candidates:
+        if not is_instance_valid(node) or not (node is Node3D):
+            continue
+        var u := node as Node3D
+        if u.has_meta("is_husk_of_harmony") or u.has_meta("is_beast_of_harmony"):
+            continue
+        if u.is_in_group("SideHarmony") or u.is_in_group("Harmony") or u.is_in_group("HuskOfHarmony") or u.is_in_group("BeastOfHarmony") or u.is_in_group("Beast"):
+            continue
+        if u.is_in_group("Structure") or u.is_in_group("Buildings") or "Base" in u.name or "Tower" in u.name or "CommandBay" in u.name or "Nest" in u.name or "Hill" in u.name or "Mine" in u.name:
+            continue
+        var hc := u.get_node_or_null("HealthComponent")
+        if hc and hc.is_dead:
+            continue
+
+        var dist_to_lane: float = GameState.get_distance_to_nearest_lane(u.global_position)
+        if dist_to_lane > 13.0:
+            var off_timer: float = float(u.get_meta("harmony_off_path_timer", 0.0)) + step_dt
+            if off_timer >= 10.0:
+                off_timer -= 10.0
+                u.set_meta("harmony_off_path_timer", off_timer)
+                var roll: float = randf()
+                if roll < 0.01:
+                    # 1% chance every 10 seconds off the path to become a Beast of Harmony!
+                    transform_unit_to_beast_of_harmony(u)
+                elif roll < 0.16:
+                    # 15% chance every 10 seconds off the path to turn into a Husk of Harmony!
+                    transform_unit_to_husk_of_harmony(u)
+            else:
+                u.set_meta("harmony_off_path_timer", off_timer)
+        else:
+            if u.has_meta("harmony_off_path_timer"):
+                u.set_meta("harmony_off_path_timer", 0.0)
+
+
+func transform_unit_to_husk_of_harmony(unit: Node3D) -> void:
+    if unit == null or not is_instance_valid(unit):
+        return
+    HarmonyHuskBuilderScript.transform_into_husk(unit)
+
+func transform_unit_to_beast_of_harmony(unit: Node3D, forced_variant: String = "") -> Node3D:
+    if unit == null or not is_instance_valid(unit):
+        return null
+    var spawn_pos: Vector3 = unit.global_position
+    var chosen_variant: String = forced_variant
+    if chosen_variant == "":
+        chosen_variant = "MELEE" if randf() < 0.5 else "RANGED"
+    var beast := BeastOfHarmonyScript.new()
+    beast.name = "BeastOfHarmony_" + chosen_variant + "_" + str(Time.get_ticks_usec())
+    var parent_node: Node = get_node_or_null("EnvironmentFeatures")
+    if parent_node == null:
+        parent_node = self
+    parent_node.add_child(beast)
+    beast.configure_beast(chosen_variant, spawn_pos)
+    unit.queue_free()
+    return beast
+
 

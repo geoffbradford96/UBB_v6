@@ -41,10 +41,9 @@ func _physics_process(delta):
 		velocity.y -= 9.8 * delta
 		
 	# Find someone to heal!
-	if not "target_recheck_timer" in self:
-		set_meta("target_recheck", 1.0)
-	var __target_timer = get_meta("target_recheck") if has_meta("target_recheck") else 1.0
-	__target_timer -= delta
+	if not has_meta("target_recheck"):
+		set_meta("target_recheck", randf_range(0.8, 1.2))
+	var __target_timer = get_meta("target_recheck") - delta
 	set_meta("target_recheck", __target_timer)
 	
 	var target_is_dead = false
@@ -56,7 +55,7 @@ func _physics_process(delta):
 		current_target = null
 			
 	if current_target == null or target_is_dead or __target_timer <= 0.0:
-		if __target_timer <= 0.0 or target_is_dead: set_meta("target_recheck", 1.0)
+		if __target_timer <= 0.0 or target_is_dead: set_meta("target_recheck", randf_range(0.8, 1.2))
 		find_new_target()
 		
 	var is_moving = false
@@ -120,6 +119,8 @@ func _physics_process(delta):
 					if target_health.current_health < target_health.max_health:
 						print("Medic heals ", current_target.name, " for ", heal_amount)
 						target_health.heal(heal_amount)
+						if humanoid_rig and humanoid_rig.has_method("trigger_attack"):
+							humanoid_rig.trigger_attack(0.35)
 						var ap_action = get_node_or_null("AnimationPlayer")
 						if ap_action and ap_action.has_animation("heal"):
 							ap_action.play("heal")
@@ -127,6 +128,7 @@ func _physics_process(delta):
 					# If they are fully healed (or already were), re-evaluate targets next frame
 					if target_health.current_health >= target_health.max_health:
 						current_target = null
+
 
 	else:
 		velocity.x = move_toward(velocity.x, 0, speed)
@@ -193,31 +195,35 @@ func _physics_process(delta):
 
 func find_new_target():
 	current_target = null
+	if not is_inside_tree() or not get_tree():
+		return
 	var my_team = ""
 	for g in get_groups():
-		if g.begins_with("Side"): my_team = g
-	var allies = []
-	for node in get_tree().get_nodes_in_group("Targetable"):
-		if node.is_in_group(my_team) and node != self:
-			allies.append(node)
+		if g.begins_with("Side"):
+			my_team = g
+			break
+	if my_team == "":
+		return
 	var closest_dist = 99999.0
-	var healthy_fallback = null
+	var healthy_fallback: Node3D = null
 	var closest_healthy_dist = 99999.0
-	
-	for a in allies:
-		if is_instance_valid(a) and a != self:
-			var health = a.get_node_or_null("HealthComponent")
-			if health and not health.is_dead:
-				var d = global_position.distance_to(a.global_position)
-				# Priority 1: Target injured allies
-				if health.current_health < health.max_health:
-					if d < closest_dist:
-						closest_dist = d
-						current_target = a
-				# Priority 2: Keep track of healthy allies to follow just in case
-				elif current_target == null and d < closest_healthy_dist:
-					closest_healthy_dist = d
-					healthy_fallback = a
+	var my_pos = global_position
+
+	for node in get_tree().get_nodes_in_group("Targetable"):
+		if node == self or not is_instance_valid(node) or not node.is_in_group(my_team):
+			continue
+		var health = node.get_node_or_null("HealthComponent")
+		if health and not health.is_dead:
+			var d = my_pos.distance_to(node.global_position)
+			# Priority 1: Target injured allies
+			if health.current_health < health.max_health:
+				if d < closest_dist:
+					closest_dist = d
+					current_target = node
+			# Priority 2: Keep track of healthy allies to follow just in case
+			elif current_target == null and d < closest_healthy_dist:
+				closest_healthy_dist = d
+				healthy_fallback = node
 					
 	# If no one is hurt, follow the closest healthy ally so we stay with the army!
 	if current_target == null and healthy_fallback != null:
@@ -229,6 +235,8 @@ var _reach_base_atk: float = -1.0
 
 func _apply_reach_synergy():
 	if not "Reach" in name:
+		return
+	if not is_inside_tree() or not get_tree():
 		return
 	if _reach_base_speed < 0.0:
 		_reach_base_speed = get("speed") if "speed" in self else 0.0

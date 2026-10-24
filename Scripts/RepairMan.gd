@@ -10,6 +10,9 @@ var action_timer: float = 0.0
 
 var humanoid_rig = null
 
+func is_humanoid() -> bool:
+	return not ("Corruptor" in name or "Void" in name)
+
 func _get_game_state():
 	if Engine.has_singleton("GameState"):
 		return Engine.get_singleton("GameState")
@@ -22,12 +25,53 @@ func _get_game_state():
 
 func _ready():
 	add_to_group("Targetable")
-	var rig_script = load("res://Scripts/HumanoidRig.gd")
-	if rig_script:
-		humanoid_rig = rig_script.new()
-		humanoid_rig.name = "HumanoidRig"
-		add_child(humanoid_rig)
-		humanoid_rig.setup(self)
+	if is_humanoid():
+		var rig_script = load("res://Scripts/HumanoidRig.gd")
+		if rig_script:
+			humanoid_rig = rig_script.new()
+			humanoid_rig.name = "HumanoidRig"
+			add_child(humanoid_rig)
+			humanoid_rig.setup(self)
+	elif "Corruptor" in name:
+		var vp = get_node_or_null("VisualPivot")
+		var m_inst = vp.get_node_or_null("MeshInstance3D") if vp else null
+		if vp and m_inst and vp.get_node_or_null("CorruptorSiphon") == null:
+			var chitin_mat = StandardMaterial3D.new()
+			chitin_mat.albedo_color = Color(0.12, 0.02, 0.18)
+			chitin_mat.metallic = 0.75
+			chitin_mat.roughness = 0.25
+			var eye_mat = StandardMaterial3D.new()
+			eye_mat.albedo_color = Color(0.95, 0.1, 0.95)
+			eye_mat.emission_enabled = true
+			eye_mat.emission = Color(0.95, 0.1, 0.95)
+			eye_mat.emission_energy_multiplier = 3.0
+			for side in [-1.0, 1.0]:
+				for z_off in [-0.6, -0.2, 0.2, 0.6]:
+					var coxa = MeshInstance3D.new()
+					var c_sph = SphereMesh.new()
+					c_sph.radius = 0.15
+					coxa.mesh = c_sph
+					coxa.material_override = chitin_mat
+					coxa.position = Vector3(side * 0.48, 0.58, z_off)
+					vp.add_child(coxa)
+				var eye = MeshInstance3D.new()
+				var e_sph = SphereMesh.new()
+				e_sph.radius = 0.12
+				eye.mesh = e_sph
+				eye.material_override = eye_mat
+				eye.position = Vector3(side * 0.22, 0.78, -0.88)
+				vp.add_child(eye)
+			var siphon = MeshInstance3D.new()
+			siphon.name = "CorruptorSiphon"
+			var s_cyl = CylinderMesh.new()
+			s_cyl.top_radius = 0.06
+			s_cyl.bottom_radius = 0.18
+			s_cyl.height = 0.65
+			siphon.mesh = s_cyl
+			siphon.material_override = eye_mat
+			siphon.rotation_degrees.x = 75.0
+			siphon.position = Vector3(0, 0.62, -1.05)
+			vp.add_child(siphon)
 
 
 func _physics_process(delta):
@@ -37,10 +81,9 @@ func _physics_process(delta):
 	if not is_on_floor():
 		velocity.y -= 9.8 * delta
 		
-	if not "target_recheck_timer" in self:
-		set_meta("target_recheck", 1.0)
-	var __target_timer = get_meta("target_recheck") if has_meta("target_recheck") else 1.0
-	__target_timer -= delta
+	if not has_meta("target_recheck"):
+		set_meta("target_recheck", randf_range(0.8, 1.2))
+	var __target_timer = get_meta("target_recheck") - delta
 	set_meta("target_recheck", __target_timer)
 	
 	var target_is_dead = false
@@ -52,14 +95,14 @@ func _physics_process(delta):
 		current_target = null
 			
 	if current_target == null or target_is_dead or __target_timer <= 0.0:
-		if __target_timer <= 0.0 or target_is_dead: set_meta("target_recheck", 1.0)
+		if __target_timer <= 0.0 or target_is_dead: set_meta("target_recheck", randf_range(0.8, 1.2))
 		find_new_target()
 		
 	var is_moving = false
 	if is_instance_valid(current_target):
 		var dist = global_position.distance_to(current_target.global_position)
 		var effective_range = repair_range
-		if current_target.get("unit_attribute") == "Mechanical":
+		if current_target.get("unit_attribute") == "Mechanical" or ("Void" in name and "Void" in current_target.name):
 			effective_range += 2.0
 		elif "Base" in current_target.name:
 			effective_range += 5.5
@@ -121,6 +164,8 @@ func _physics_process(delta):
 					if target_health:
 						if target_health.current_health < target_health.max_health:
 							target_health.heal(repair_amount)
+							if humanoid_rig and humanoid_rig.has_method("trigger_attack"):
+								humanoid_rig.trigger_attack(0.32)
 						var ap_action = get_node_or_null("AnimationPlayer")
 						if ap_action and ap_action.has_animation("repair"):
 							ap_action.play("repair")
@@ -131,15 +176,18 @@ func _physics_process(delta):
 					# Attack!
 					var target_health = current_target.get_node_or_null("HealthComponent")
 					if target_health:
-						target_health.take_damage(10.0)
+						target_health.take_damage(10.0, global_position)
+						if humanoid_rig and humanoid_rig.has_method("trigger_attack"):
+							humanoid_rig.trigger_attack(0.30)
+
 
 	else:
 		velocity.x = move_toward(velocity.x, 0, speed)
 		velocity.z = move_toward(velocity.z, 0, speed)
 
 	var horiz_vel = Vector3(velocity.x, 0, velocity.z)
-	var anim_mesh = get_node_or_null("MeshInstance3D")
-	if not anim_mesh: anim_mesh = get_node_or_null("VisualPivot")
+	var anim_mesh = get_node_or_null("VisualPivot")
+	if not anim_mesh: anim_mesh = get_node_or_null("MeshInstance3D")
 	if horiz_vel.length() > 0.1:
 		var look_target = global_position + horiz_vel
 		if global_position.distance_to(look_target) > 0.1:
@@ -184,6 +232,16 @@ func _physics_process(delta):
 			wounded = hc.is_critically_wounded()
 		humanoid_rig.animate(delta, is_moving, wounded, speed)
 	else:
+		var vp = get_node_or_null("VisualPivot")
+		var m_node = vp.get_node_or_null("MeshInstance3D") if vp else get_node_or_null("MeshInstance3D")
+		if m_node:
+			var t_leg = Time.get_ticks_msec() * 0.012
+			for i in range(4):
+				var l_leg = m_node.get_node_or_null("LeftLeg_" + str(i))
+				var r_leg = m_node.get_node_or_null("RightLeg_" + str(i))
+				var wave = (sin(t_leg + float(i) * 1.35) * 0.32) if is_moving else (sin(t_leg * 0.35 + float(i)) * 0.05)
+				if l_leg: l_leg.rotation.x = wave
+				if r_leg: r_leg.rotation.x = -wave
 		var ap = get_node_or_null("AnimationPlayer")
 		if ap:
 			if ap.current_animation == "repair" and ap.is_playing():
@@ -198,21 +256,29 @@ func _physics_process(delta):
 
 func find_new_target():
 	current_target = null
+	if not is_inside_tree() or not get_tree():
+		return
 	
-	# Priority 1: Find a damaged allied Tower or Base
+	# Priority 1: Find a damaged allied Tower, Base, Vehicle, or (for VoidCorruptor) allied Void unit
 	var my_team = ""
 	for g in get_groups():
-		if g.begins_with("Side"): my_team = g
+		if g.begins_with("Side"):
+			my_team = g
+			break
+	if my_team == "":
+		return
 		
 	var allies = get_tree().get_nodes_in_group(my_team)
-	var repair_target = null
+	var repair_target: Node3D = null
 	var closest_repair_dist = 99999.0
+	var my_pos = global_position
+	var is_void_mender: bool = "Void" in name or "Corruptor" in name
 	
 	for a in allies:
-		if "Tower" in a.name or "Base" in a.name or "CommandBay" in a.name or a.get("unit_attribute") == "Mechanical":
+		if is_instance_valid(a) and a != self and ("Tower" in a.name or "Base" in a.name or "CommandBay" in a.name or a.get("unit_attribute") == "Mechanical" or (is_void_mender and "Void" in a.name)):
 			var hp = a.get_node_or_null("HealthComponent")
 			if hp and not hp.is_dead and hp.current_health < hp.max_health:
-				var d = global_position.distance_to(a.global_position)
+				var d = my_pos.distance_to(a.global_position)
 				if d < closest_repair_dist:
 					closest_repair_dist = d
 					repair_target = a
@@ -221,19 +287,21 @@ func find_new_target():
 		current_target = repair_target
 	else:
 		# If no repairs are needed, act like a normal grunt and push the lane!
-		var enemies = []
-		for node in get_tree().get_nodes_in_group("Targetable"):
-			if not node.is_in_group(my_team):
-				enemies.append(node)
 		var closest = 99999.0
-		for e in enemies:
-			if is_instance_valid(e):
-				var hp = e.get_node_or_null("HealthComponent")
-				if hp and hp.is_dead: continue
-				var d = global_position.distance_to(e.global_position)
-				if d < closest:
-					closest = d
-					current_target = e
+		var gs = _get_game_state()
+		for node in get_tree().get_nodes_in_group("Targetable"):
+			if node == self or not is_instance_valid(node) or node.is_in_group(my_team):
+				continue
+			var d = my_pos.distance_to(node.global_position)
+			if d >= closest:
+				continue
+			var hp = node.get_node_or_null("HealthComponent")
+			if hp and hp.is_dead:
+				continue
+			if gs and gs.is_unit_stealthed_from(node, self):
+				continue
+			closest = d
+			current_target = node
 
 # --- Reach faction synergy: faster move/attack + bigger model when clustered with other Reach units ---
 var _reach_base_speed: float = -1.0
@@ -241,6 +309,8 @@ var _reach_base_atk: float = -1.0
 
 func _apply_reach_synergy():
 	if not "Reach" in name:
+		return
+	if not is_inside_tree() or not get_tree():
 		return
 	if _reach_base_speed < 0.0:
 		_reach_base_speed = get("speed") if "speed" in self else 0.0

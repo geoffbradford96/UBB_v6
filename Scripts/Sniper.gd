@@ -1,6 +1,7 @@
 extends CharacterBody3D
 
 @export var unit_attribute: String = "Organic"
+@export var max_health: float = 100.0
 
 @export var speed: float = 4.0
 @export var attack_range: float = 35.0 # Must be >30 to reach the center lane from the flank!
@@ -32,6 +33,14 @@ func _ready():
 	base_speed = speed
 	if "attack_speed" in self:
 		base_attack_speed = self.get("attack_speed")
+	var health = get_node_or_null("HealthComponent")
+	if health:
+		if max_health != 100.0:
+			health.max_health = max_health
+			health.current_health = max_health
+		else:
+			max_health = health.max_health
+			health.current_health = health.max_health
 	# Decide whether to snipe from the left or right off-lane
 	if randf() > 0.5:
 		flank_x = -30.0
@@ -42,6 +51,7 @@ func _ready():
 		humanoid_rig.name = "HumanoidRig"
 		add_child(humanoid_rig)
 		humanoid_rig.setup(self)
+
 
 
 
@@ -56,10 +66,9 @@ func _physics_process(delta):
 		if __s_timer > 0.0:
 			set_meta("stealth_revealed_timer", max(0.0, __s_timer - delta))
 		
-	if not "target_recheck_timer" in self:
-		set_meta("target_recheck", 1.0)
-	var __target_timer = get_meta("target_recheck") if has_meta("target_recheck") else 1.0
-	__target_timer -= delta
+	if not has_meta("target_recheck"):
+		set_meta("target_recheck", randf_range(0.8, 1.2))
+	var __target_timer = get_meta("target_recheck") - delta
 	set_meta("target_recheck", __target_timer)
 	
 	var target_is_dead = false
@@ -71,7 +80,7 @@ func _physics_process(delta):
 		current_target = null
 			
 	if current_target == null or target_is_dead or __target_timer <= 0.0:
-		if __target_timer <= 0.0 or target_is_dead: set_meta("target_recheck", 1.0)
+		if __target_timer <= 0.0 or target_is_dead: set_meta("target_recheck", randf_range(0.8, 1.2))
 		find_new_target()
 		
 	var is_moving = false
@@ -112,6 +121,8 @@ func _physics_process(delta):
 		var look_target = global_position + horiz_vel
 		if global_position.distance_to(look_target) > 0.1:
 			look_at(look_target, Vector3.UP)
+			if has_meta("gilded_gen_scale"):
+				scale = Vector3.ONE * float(get_meta("gilded_gen_scale"))
 		if anim_mesh:
 			var t = Time.get_ticks_msec() / 1000.0 * speed * 2.0
 			anim_mesh.rotation.z = sin(t) * 0.1
@@ -122,6 +133,8 @@ func _physics_process(delta):
 			look_target.y = global_position.y
 			if global_position.distance_to(look_target) > 0.1:
 				look_at(look_target, Vector3.UP)
+				if has_meta("gilded_gen_scale"):
+					scale = Vector3.ONE * float(get_meta("gilded_gen_scale"))
 		if anim_mesh:
 			anim_mesh.rotation.z = lerp(anim_mesh.rotation.z, 0.0, 10.0 * delta)
 			anim_mesh.rotation.x = lerp(anim_mesh.rotation.x, 0.0, 10.0 * delta)
@@ -162,6 +175,8 @@ var projectile_scene = preload("res://Scenes/Projectile.tscn")
 
 func shoot():
 	if not is_instance_valid(current_target): return
+	if humanoid_rig and humanoid_rig.has_method("trigger_attack"):
+		humanoid_rig.trigger_attack(0.32)
 	if projectile_scene:
 		var proj = projectile_scene.instantiate()
 		var scene_root = get_tree().current_scene if (get_tree() and get_tree().current_scene) else get_parent()
@@ -171,6 +186,7 @@ func shoot():
 			proj.target = current_target
 			proj.set("damage", damage)
 			proj.set("speed", 40.0) # Sniper bullets are fast!
+
 		
 		# Sniper rifle recoil kick
 		var anim_mesh = get_node_or_null("MeshInstance3D")
@@ -186,29 +202,36 @@ func shoot():
 			mat.emission_enabled = true
 			mat.emission = Color(0, 0.5, 1)
 			mat.emission_energy_multiplier = 4.0
-			mesh.set_surface_override_material(0, mat)
+			mesh.material_override = mat
 
 func find_new_target():
 	current_target = null
+	if not is_inside_tree() or not get_tree():
+		return
 	var my_team = ""
 	for g in get_groups():
-		if g.begins_with("Side"): my_team = g
-	var enemies = []
-	if my_team != "":
-		for node in get_tree().get_nodes_in_group("Targetable"):
-			if not node.is_in_group(my_team) and is_instance_valid(node) and node != self:
-				enemies.append(node)
+		if g.begins_with("Side"):
+			my_team = g
+			break
+	if my_team == "":
+		return
 	var closest_dist = 99999.0
-	for e in enemies:
-		if is_instance_valid(e):
-			var target_hc = e.get_node_or_null("HealthComponent")
-			if target_hc and target_hc.is_dead: continue
-			var gs = _get_game_state()
-			if gs and gs.is_unit_stealthed_from(e, self): continue
-			var d = global_position.distance_to(e.global_position)
-			if d < closest_dist:
-				closest_dist = d
-				current_target = e
+	var my_pos = global_position
+	var gs = _get_game_state()
+
+	for node in get_tree().get_nodes_in_group("Targetable"):
+		if node == self or not is_instance_valid(node) or node.is_in_group(my_team):
+			continue
+		var d = my_pos.distance_to(node.global_position)
+		if d >= closest_dist:
+			continue
+		var target_hc = node.get_node_or_null("HealthComponent")
+		if target_hc and target_hc.is_dead:
+			continue
+		if gs and gs.is_unit_stealthed_from(node, self):
+			continue
+		closest_dist = d
+		current_target = node
 
 # --- Reach faction synergy: faster move/attack + bigger model when clustered with other Reach units ---
 var _reach_base_speed: float = -1.0
@@ -216,6 +239,8 @@ var _reach_base_atk: float = -1.0
 
 func _apply_reach_synergy():
 	if not "Reach" in name:
+		return
+	if not is_inside_tree() or not get_tree():
 		return
 	if _reach_base_speed < 0.0:
 		_reach_base_speed = get("speed") if "speed" in self else 0.0

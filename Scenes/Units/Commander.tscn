@@ -56,11 +56,28 @@ height = 1.2
 [sub_resource type="BoxMesh" id="BoxMesh_mkjwt"]
 size = Vector3(0.2, 2, 0.2)
 
-[node name="Commander" type="CharacterBody3D" ]
+[node name="Commander" type="CharacterBody3D"]
 script = ExtResource("1_script")
+max_health = 750.0
+max_shield = 200.0
+shield_type = "360"
+shield_color = Color(0.18, 0.55, 1.0, 0.45)
+shield_recharge_rate = 20.0
+max_armor = 250.0
+armor_style = "REACTIVE"
+armor_color = Color(0.3, 0.35, 0.42, 1.0)
+attack_damage = 80.0
 
 [node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("2_health")
+max_health = 750.0
+max_shield = 200.0
+shield_type = "360"
+shield_color = Color(0.18, 0.55, 1.0, 0.45)
+shield_recharge_rate = 20.0
+max_armor = 250.0
+armor_style = "REACTIVE"
+armor_color = Color(0.3, 0.35, 0.42, 1.0)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("CapsuleShape3D_1")

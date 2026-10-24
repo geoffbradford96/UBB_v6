@@ -35,14 +35,19 @@ func _ready():
 			if global_position.distance_to(e.global_position) <= effective_radius:
 				var hp = e.get_node_or_null("HealthComponent")
 				if hp:
-					hp.take_damage(damage)
+					hp.take_damage(damage, global_position)
 					
 	# Fade/shrink out smoothly before freeing
+	if not is_inside_tree():
+		return
 	var remaining_time = max(0.1, duration - 0.5)
 	if mesh and is_instance_valid(mesh):
 		var fade_tw = create_tween()
-		fade_tw.tween_property(mesh, "scale", Vector3(0.01, 0.01, 0.01), remaining_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-		await fade_tw.finished
+		if fade_tw:
+			fade_tw.tween_property(mesh, "scale", Vector3(0.01, 0.01, 0.01), remaining_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+			await fade_tw.finished
+		elif get_tree():
+			await get_tree().create_timer(remaining_time).timeout
 	else:
 		if get_tree():
 			await get_tree().create_timer(remaining_time).timeout

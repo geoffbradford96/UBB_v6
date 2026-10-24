@@ -6,6 +6,7 @@
 [resource]
 script = ExtResource("1_12evq")
 card_name = "RocketInfantry"
+is_melee = false
 cost = 4.0
 max_hp = 150.0
 description = "Anti-vehicle rocket soldier."

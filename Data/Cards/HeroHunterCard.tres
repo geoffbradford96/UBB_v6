@@ -6,5 +6,6 @@
 [resource]
 script = ExtResource("1_script")
 card_name = "HeroHunter"
+is_melee = false
 cost = 4.0
 unit_scene = ExtResource("2_scene")

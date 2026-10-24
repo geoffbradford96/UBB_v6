@@ -57,15 +57,24 @@ size = Vector3(0.2, 2, 0.2)
 
 [node name="ReachCommander" type="CharacterBody3D"]
 script = ExtResource("1_b5afs")
-max_health = 100.0
-attack_damage = 100.0
+max_health = 650.0
+max_shield = 350.0
+shield_type = "FRONT"
+shield_color = Color(0.0, 0.88, 1.0, 0.5)
+shield_recharge_rate = 25.0
+attack_damage = 85.0
 
 [node name="@CollisionShape3D@4" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 shape = SubResource("BoxShape3D_2g0lf")
 
-[node name="HealthComponent" type="Node3D" parent="."]
+[node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("2_va6a1")
+max_health = 650.0
+max_shield = 350.0
+shield_type = "FRONT"
+shield_color = Color(0.0, 0.88, 1.0, 0.5)
+shield_recharge_rate = 25.0
 
 [node name="AnimationPlayer" type="AnimationPlayer" parent="."]
 libraries = {

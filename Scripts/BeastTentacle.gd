@@ -185,22 +185,28 @@ func execute_tentacle_slam():
 
 func find_new_target():
 	current_target = null
-	var enemies = []
-	for node in get_tree().get_nodes_in_group("Targetable"):
-		if not node.is_in_group("Beast") and is_instance_valid(node) and node != self:
-			enemies.append(node)
-	
+	if not is_inside_tree() or not get_tree():
+		return
 	var closest = 99999.0
-	for e in enemies:
-		if is_instance_valid(e):
-			var hc = e.get_node_or_null("HealthComponent")
-			if hc and hc.is_dead: continue
-			if GameState.is_unit_stealthed_from(e, self): continue
-			var d = global_position.distance_to(e.global_position)
-			var effective_range = attack_range + 0.5
-			if "Base" in e.name: effective_range += 5.5
-			elif "Tower" in e.name or "CommandBay" in e.name: effective_range += 2.5
-			
-			if d < effective_range and d < closest:
-				closest = d
-				current_target = e
+	var my_pos = global_position
+
+	for node in get_tree().get_nodes_in_group("Targetable"):
+		if node == self or not is_instance_valid(node) or node.is_in_group("Beast"):
+			continue
+		var d = my_pos.distance_to(node.global_position)
+		var effective_range = attack_range + 0.5
+		if "Base" in node.name:
+			effective_range += 5.5
+		elif "Tower" in node.name or "CommandBay" in node.name:
+			effective_range += 2.5
+
+		if d >= effective_range or d >= closest:
+			continue
+		var hc = node.get_node_or_null("HealthComponent")
+		if hc and hc.is_dead:
+			continue
+		if GameState.is_unit_stealthed_from(node, self):
+			continue
+
+		closest = d
+		current_target = node

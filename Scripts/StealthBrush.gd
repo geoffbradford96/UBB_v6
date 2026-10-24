@@ -38,45 +38,51 @@ func setup_visuals(radius: float = 5.5):
 	bed_mesh.position.y = 0.04
 	add_child(bed_mesh)
 	
-	# Dense clusters of tall grass blades
+	# Dense clusters of tall grass blades batched into a single GPU MultiMeshInstance3D
 	var grass_mat = StandardMaterial3D.new()
-	grass_mat.albedo_color = Color(0.24, 0.64, 0.18)
-	grass_mat.roughness = 0.7
+	grass_mat.vertex_color_use_as_albedo = true
+	grass_mat.roughness = 0.68
 	grass_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	
+
 	var blade_box = BoxMesh.new()
-	blade_box.size = Vector3(0.22, 2.5, 0.04)
-	
-	var blade_alt = BoxMesh.new()
-	blade_alt.size = Vector3(0.18, 2.8, 0.04)
-	
-	var blade_mat2 = StandardMaterial3D.new()
-	blade_mat2.albedo_color = Color(0.30, 0.72, 0.22)
-	blade_mat2.roughness = 0.65
-	blade_mat2.cull_mode = BaseMaterial3D.CULL_DISABLED
-	
+	blade_box.size = Vector3(0.20, 2.6, 0.04)
+
+	var blade_transforms: Array[Transform3D] = []
+	var blade_colors: Array[Color] = []
+	var col_a := Color(0.24, 0.64, 0.18)
+	var col_b := Color(0.30, 0.72, 0.22)
+
 	var clump_count = int(radius * 5.0)
 	for i in range(clump_count):
 		var angle = randf() * TAU
 		var dist = randf_range(0.4, radius * 0.92)
 		var clump_pos = Vector3(cos(angle) * dist, 0.0, sin(angle) * dist)
-		
-		var clump = Node3D.new()
-		clump.position = clump_pos
-		add_child(clump)
-		
-		# 3-4 splayed blades per clump
 		var blades_in_clump = randi_range(3, 5)
 		for b in range(blades_in_clump):
-			var blade = MeshInstance3D.new()
-			blade.mesh = blade_box if (b % 2 == 0) else blade_alt
-			blade.material_override = grass_mat if (b % 2 == 0) else blade_mat2
-			
 			var blade_rot_y = randf() * TAU
 			var blade_tilt = randf_range(-0.15, 0.15)
-			blade.rotation = Vector3(blade_tilt, blade_rot_y, randf_range(-0.15, 0.15))
-			blade.position = Vector3(randf_range(-0.15, 0.15), 1.25, randf_range(-0.15, 0.15))
-			clump.add_child(blade)
+			var b_pos = clump_pos + Vector3(randf_range(-0.15, 0.15), 1.25, randf_range(-0.15, 0.15))
+			var b_basis = Basis.from_euler(Vector3(blade_tilt, blade_rot_y, randf_range(-0.15, 0.15)))
+			if b % 2 != 0:
+				b_basis = b_basis.scaled(Vector3(0.9, 1.08, 1.0))
+			blade_transforms.append(Transform3D(b_basis, b_pos))
+			blade_colors.append(col_a if (b % 2 == 0) else col_b)
+
+	var grass_mm := MultiMesh.new()
+	grass_mm.transform_format = MultiMesh.TRANSFORM_3D
+	grass_mm.use_colors = true
+	grass_mm.mesh = blade_box
+	grass_mm.instance_count = blade_transforms.size()
+	for idx in range(blade_transforms.size()):
+		grass_mm.set_instance_transform(idx, blade_transforms[idx])
+		grass_mm.set_instance_color(idx, blade_colors[idx])
+
+	var grass_mmi := MultiMeshInstance3D.new()
+	grass_mmi.name = "GrassBladesMMI"
+	grass_mmi.multimesh = grass_mm
+	grass_mmi.material_override = grass_mat
+	add_child(grass_mmi)
+
 
 func is_flying_unit(body: Node) -> bool:
 	if "Plane" in body.name: return true

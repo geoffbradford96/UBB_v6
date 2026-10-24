@@ -4,6 +4,7 @@ var speed = 20.0
 var damage = 20.0
 var target: Node3D = null
 var is_poisonous: bool = false
+var _hit_done: bool = false
 
 var lifetime: float = 6.0
 
@@ -29,10 +30,12 @@ func _physics_process(delta):
 		look_at(global_position + direction, up)
 
 func _hit_target(body):
+	if _hit_done: return
+	_hit_done = true
 	if is_instance_valid(body):
 		var health_node = body.get_node_or_null("HealthComponent")
 		if health_node != null:
-			health_node.take_damage(damage)
+			health_node.take_damage(damage, global_position)
 			if is_poisonous:
 				health_node.apply_poison(4, damage * 0.5)
 			
@@ -52,13 +55,16 @@ func _hit_target(body):
 	mat.emission = spark_color
 	mat.emission_energy_multiplier = 3.0
 	spark.material_override = mat
-	var scene_root = get_tree().current_scene if (get_tree() and get_tree().current_scene) else get_parent()
+	var scene_root = get_tree().current_scene if (is_inside_tree() and get_tree() and get_tree().current_scene) else get_parent()
 	if scene_root:
 		scene_root.add_child(spark)
 		spark.global_position = global_position
 		var tw = spark.create_tween()
-		tw.tween_property(spark, "scale", Vector3(0.05, 0.05, 0.05), 0.15)
-		tw.tween_callback(spark.queue_free)
+		if tw:
+			tw.tween_property(spark, "scale", Vector3(0.05, 0.05, 0.05), 0.15)
+			tw.tween_callback(spark.queue_free)
+		else:
+			spark.queue_free()
 	
 	queue_free()
 

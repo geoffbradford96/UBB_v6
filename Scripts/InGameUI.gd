@@ -17,6 +17,12 @@ var player_profile: String = "Player1"
 
 signal ui_card_selected(card_ui, ui_instance)
 
+# 25-Player Match Scoreboard Overlay
+var scoreboard_overlay: Control = null
+var scoreboard_rows_container: VBoxContainer = null
+var scoreboard_info_label: Label = null
+var roster_button: Button = null
+
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	
@@ -24,6 +30,20 @@ func _ready():
 	if exit_btn:
 		exit_btn.text = "Exit Match"
 		exit_btn.connect("pressed", Callable(self, "_on_exit_button_pressed"))
+	
+	# Top Roster / Scoreboard Button
+	roster_button = Button.new()
+	roster_button.name = "RosterButton"
+	roster_button.text = "Roster (Tab)" if GameState.current_mode != "AI_VS_AI" else "Roster (F1)"
+	roster_button.offset_left = 20.0
+	roster_button.offset_top = 70.0
+	roster_button.offset_right = 120.0
+	roster_button.offset_bottom = 105.0
+	roster_button.add_theme_font_size_override("font_size", 12)
+	roster_button.connect("pressed", Callable(self, "toggle_match_scoreboard"))
+	add_child(roster_button)
+	
+	_build_scoreboard_overlay()
 	
 	if GameState.current_mode == "AI_VS_AI":
 		var bp = get_node_or_null("BottomPanel")
@@ -55,8 +75,44 @@ func _ready():
 
 func _input(event):
 	if event.is_action_pressed("ui_cancel"):
+		if scoreboard_overlay and scoreboard_overlay.visible:
+			scoreboard_overlay.visible = false
+			get_viewport().set_input_as_handled()
+			return
+		if pause_overlay and not pause_overlay.visible and GameState.current_mode != "AI_VS_AI" and hand_container:
+			if selected_card_idx >= 0 and selected_card_idx < hand_container.get_child_count():
+				var cur_card = hand_container.get_child(selected_card_idx)
+				if cur_card and "is_selected" in cur_card and cur_card.is_selected:
+					selected_card_idx = -1
+					emit_signal("ui_card_selected", cur_card, self)
+					get_viewport().set_input_as_handled()
+					return
 		toggle_pause_menu()
+		get_viewport().set_input_as_handled()
 		return
+		
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_F1:
+			toggle_match_scoreboard()
+			get_viewport().set_input_as_handled()
+			return
+		elif event.keycode == KEY_TAB:
+			if GameState.current_mode != "AI_VS_AI" or event.shift_pressed:
+				toggle_match_scoreboard()
+				get_viewport().set_input_as_handled()
+				return
+		elif GameState.current_mode != "AI_VS_AI" and player_id == 1 and hand_container:
+			var hotkey_idx: int = -1
+			if event.keycode == KEY_1: hotkey_idx = 0
+			elif event.keycode == KEY_2: hotkey_idx = 1
+			elif event.keycode == KEY_3: hotkey_idx = 2
+			elif event.keycode == KEY_4: hotkey_idx = 3
+			if hotkey_idx >= 0 and hotkey_idx < hand_container.get_child_count():
+				var hk_card = hand_container.get_child(hotkey_idx)
+				selected_card_idx = hotkey_idx
+				emit_signal("ui_card_selected", hk_card, self)
+				get_viewport().set_input_as_handled()
+				return
 		
 	if GameState.current_mode == "AI_VS_AI":
 		if event is InputEventKey and event.keycode == KEY_V and event.pressed and not event.echo:
@@ -88,6 +144,7 @@ func _input(event):
 			selected_card_idx += 1
 			if selected_card_idx >= hand_container.get_child_count(): selected_card_idx = 0
 			_update_controller_selection()
+
 
 func _update_controller_selection():
 	if selected_card_idx >= 0 and selected_card_idx < hand_container.get_child_count():
@@ -280,14 +337,24 @@ func _build_enemy_req_ui():
 func update_requisition(current: float, max_req: float):
 	req_bar.max_value = max_req
 	req_bar.value = current
-	var prefix = "SideA Energy" if GameState.current_mode == "AI_VS_AI" else "Requisition"
+	var my_team: String = GameState.local_player_team if GameState.local_player_team != "Spectator" else "SideA"
+	var pen_pct: int = GameState.get_team_energy_penalty_pct(my_team)
+	var pen_tag: String = (" (-" + str(pen_pct) + "% Asym Penalty)") if pen_pct > 0 else ""
+	var prefix: String = ("SideA Energy" + pen_tag) if GameState.current_mode == "AI_VS_AI" else ("Requisition" + pen_tag)
 	req_label.text = prefix + ": " + str(floor(current)) + " / " + str(max_req)
 
 func update_enemy_requisition(current: float, max_req: float, label_prefix: String = "Enemy"):
 	if enemy_req_bar and enemy_req_label:
 		enemy_req_bar.max_value = max_req
 		enemy_req_bar.value = current
-		enemy_req_label.text = label_prefix + " Energy: " + str(floor(current)) + " / " + str(max_req)
+		var e_team: String = "SideB"
+		for t_cand: String in GameState.ALL_TEAMS:
+			if t_cand in label_prefix:
+				e_team = t_cand
+				break
+		var pen_pct: int = GameState.get_team_energy_penalty_pct(e_team)
+		var pen_tag: String = (" [-" + str(pen_pct) + "% Asym]") if pen_pct > 0 else ""
+		enemy_req_label.text = label_prefix + pen_tag + " Energy: " + str(floor(current)) + " / " + str(max_req)
 
 var warning_label: Label = null
 var warning_tween: Tween = null
@@ -428,7 +495,7 @@ func _build_spectator_hud():
 	bottom_container.add_child(bot_vbox)
 	
 	var hints = Label.new()
-	hints.text = "[WASD / Arrows]: Pan Camera  |  [Wheel]: Zoom In/Out  |  [1-3 / Tab / V]: Shortcuts"
+	hints.text = "[WASD / Arrows]: Pan Camera  |  [Wheel]: Zoom  |  [1-3 / Q / Tab / F1 / V]: Shortcuts"
 	hints.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hints.add_theme_font_size_override("font_size", 12)
 	hints.add_theme_color_override("font_color", Color(0.8, 0.8, 0.85, 0.85))
@@ -455,12 +522,26 @@ func _build_spectator_hud():
 	btn_overview.add_theme_font_size_override("font_size", 13)
 	btn_overview.connect("pressed", Callable(self, "_on_spec_snap_overview"))
 	btns_hbox.add_child(btn_overview)
+
+	var btn_cycle_team = Button.new()
+	btn_cycle_team.name = "CycleTeamBtn"
+	btn_cycle_team.text = "Cycle Team View (Q)"
+	btn_cycle_team.add_theme_font_size_override("font_size", 13)
+	btn_cycle_team.connect("pressed", Callable(self, "_on_spec_cycle_team"))
+	btns_hbox.add_child(btn_cycle_team)
 	
 	var btn_cycle = Button.new()
 	btn_cycle.text = "Cycle Unit (Tab)"
 	btn_cycle.add_theme_font_size_override("font_size", 13)
 	btn_cycle.connect("pressed", Callable(self, "_on_spec_cycle_unit"))
 	btns_hbox.add_child(btn_cycle)
+	
+	var btn_roster = Button.new()
+	btn_roster.name = "SpecRosterBtn"
+	btn_roster.text = "25P Roster (F1)"
+	btn_roster.add_theme_font_size_override("font_size", 13)
+	btn_roster.connect("pressed", Callable(self, "toggle_match_scoreboard"))
+	btns_hbox.add_child(btn_roster)
 	
 	spectator_vision_btn = Button.new()
 	_update_vision_btn_text()
@@ -475,7 +556,7 @@ func _update_vision_btn_text():
 
 func _get_active_cam():
 	var cam = get_viewport().get_camera_3d()
-	if not cam:
+	if not cam and get_tree() and get_tree().current_scene:
 		cam = get_tree().current_scene.find_child("Camera3D", true, false)
 	return cam
 
@@ -494,6 +575,11 @@ func _on_spec_snap_overview():
 	if cam and cam.has_method("snap_to_overview"):
 		cam.snap_to_overview()
 
+func _on_spec_cycle_team():
+	var cam = _get_active_cam()
+	if cam and cam.has_method("cycle_team_perspective"):
+		cam.cycle_team_perspective()
+
 func _on_spec_cycle_unit():
 	var cam = _get_active_cam()
 	if cam and cam.has_method("cycle_follow_target"):
@@ -505,19 +591,311 @@ func _on_spec_toggle_vision():
 		cam.toggle_player_vision()
 	else:
 		GameState.player_vision_enabled = not GameState.player_vision_enabled
-		for u in get_tree().get_nodes_in_group("Targetable"):
-			var hc = u.get_node_or_null("HealthComponent")
-			if hc and hc.has_method("update_ground_marker_color"):
-				hc.update_ground_marker_color()
+		if get_tree():
+			for u in get_tree().get_nodes_in_group("Targetable"):
+				var hc = u.get_node_or_null("HealthComponent")
+				if hc and hc.has_method("update_ground_marker_color"):
+					hc.update_ground_marker_color()
 	_update_vision_btn_text()
 
 func update_spectator_energy(a_cur: float, b_cur: float, max_e: float):
 	if spectator_a_bar and spectator_a_label:
 		spectator_a_bar.max_value = max_e
 		spectator_a_bar.value = a_cur
-		spectator_a_label.text = "Side A Energy: " + str(floor(a_cur)) + " / " + str(floor(max_e))
+		var a_pen: int = GameState.get_team_energy_penalty_pct("SideA")
+		var a_tag: String = (" [-" + str(a_pen) + "%]") if a_pen > 0 else ""
+		spectator_a_label.text = "Side A" + a_tag + " Energy: " + str(floor(a_cur)) + " / " + str(floor(max_e))
 	if spectator_b_bar and spectator_b_label:
 		spectator_b_bar.max_value = max_e
 		spectator_b_bar.value = b_cur
-		spectator_b_label.text = "Side B Energy: " + str(floor(b_cur)) + " / " + str(floor(max_e))
+		var b_pen: int = GameState.get_team_energy_penalty_pct("SideB")
+		var b_tag: String = (" [-" + str(b_pen) + "%]") if b_pen > 0 else ""
+		spectator_b_label.text = "Side B" + b_tag + " Energy: " + str(floor(b_cur)) + " / " + str(floor(max_e))
+
+# =========================================================================
+# 25-Player Match Scoreboard Overlay Implementation
+# =========================================================================
+
+func _build_scoreboard_overlay():
+	scoreboard_overlay = Control.new()
+	scoreboard_overlay.name = "ScoreboardOverlay"
+	scoreboard_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scoreboard_overlay.visible = false
+	scoreboard_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	
+	var dim = ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.03, 0.04, 0.07, 0.88)
+	scoreboard_overlay.add_child(dim)
+	
+	var center = CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scoreboard_overlay.add_child(center)
+	
+	var panel = PanelContainer.new()
+	panel.custom_minimum_size = Vector2(920, 580)
+	center.add_child(panel)
+	
+	var style_panel = StyleBoxFlat.new()
+	style_panel.bg_color = Color(0.07, 0.09, 0.14, 0.98)
+	style_panel.border_color = Color(0.25, 0.45, 0.75, 0.8)
+	style_panel.set_border_width_all(2)
+	style_panel.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", style_panel)
+	
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	panel.add_child(margin)
+	
+	var root_vbox = VBoxContainer.new()
+	root_vbox.add_theme_constant_override("separation", 10)
+	margin.add_child(root_vbox)
+	
+	# Top bar with title and close button
+	var top_hbox = HBoxContainer.new()
+	root_vbox.add_child(top_hbox)
+	
+	var title = Label.new()
+	title.text = "MATCH SCOREBOARD & 25-PLAYER ROSTER"
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(0.9, 0.95, 1.0))
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_hbox.add_child(title)
+	
+	var close_btn = Button.new()
+	close_btn.text = "Close (Tab/Esc)"
+	close_btn.custom_minimum_size = Vector2(130, 32)
+	close_btn.connect("pressed", Callable(self, "toggle_match_scoreboard"))
+	top_hbox.add_child(close_btn)
+	
+	scoreboard_info_label = Label.new()
+	scoreboard_info_label.text = "Mode: DOMINATION  |  Map Layout: 1v1  |  Active Teams: 2"
+	scoreboard_info_label.add_theme_font_size_override("font_size", 13)
+	scoreboard_info_label.add_theme_color_override("font_color", Color(0.65, 0.75, 0.9))
+	root_vbox.add_child(scoreboard_info_label)
+	
+	root_vbox.add_child(HSeparator.new())
+	
+	# Column Headers
+	var header_hbox = HBoxContainer.new()
+	header_hbox.add_theme_constant_override("separation", 10)
+	root_vbox.add_child(header_hbox)
+	
+	var col_color = Label.new()
+	col_color.text = "Color"
+	col_color.custom_minimum_size = Vector2(36, 0)
+	header_hbox.add_child(col_color)
+	
+	var col_team = Label.new()
+	col_team.text = "Team & Swatch Name"
+	col_team.custom_minimum_size = Vector2(210, 0)
+	col_team.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_hbox.add_child(col_team)
+	
+	var col_ctrl = Label.new()
+	col_ctrl.text = "Controller / Faction"
+	col_ctrl.custom_minimum_size = Vector2(180, 0)
+	header_hbox.add_child(col_ctrl)
+	
+	var col_bases = Label.new()
+	col_bases.text = "Citadels"
+	col_bases.custom_minimum_size = Vector2(65, 0)
+	col_bases.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	header_hbox.add_child(col_bases)
+	
+	var col_towers = Label.new()
+	col_towers.text = "Towers"
+	col_towers.custom_minimum_size = Vector2(65, 0)
+	col_towers.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	header_hbox.add_child(col_towers)
+	
+	var col_units = Label.new()
+	col_units.text = "Units"
+	col_units.custom_minimum_size = Vector2(60, 0)
+	col_units.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	header_hbox.add_child(col_units)
+	
+	var col_rate = Label.new()
+	col_rate.text = "Energy Rate"
+	col_rate.custom_minimum_size = Vector2(110, 0)
+	col_rate.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	header_hbox.add_child(col_rate)
+	
+	var col_act = Label.new()
+	col_act.text = "Spectate"
+	col_act.custom_minimum_size = Vector2(75, 0)
+	col_act.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	header_hbox.add_child(col_act)
+	
+	root_vbox.add_child(HSeparator.new())
+	
+	# Scrollable table container
+	var scroll = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(0, 390)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root_vbox.add_child(scroll)
+	
+	scoreboard_rows_container = VBoxContainer.new()
+	scoreboard_rows_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scoreboard_rows_container.add_theme_constant_override("separation", 6)
+	scroll.add_child(scoreboard_rows_container)
+	
+	add_child(scoreboard_overlay)
+
+func toggle_match_scoreboard():
+	if not scoreboard_overlay: return
+	var is_open = not scoreboard_overlay.visible
+	scoreboard_overlay.visible = is_open
+	if is_open:
+		_refresh_scoreboard_data()
+
+func _refresh_scoreboard_data():
+	if not scoreboard_rows_container: return
+	for child in scoreboard_rows_container.get_children():
+		child.queue_free()
+	
+	var m_mode = GameState.game_mode
+	var m_layout = GameState.map_layout_id
+	var m_biome = GameState.map_biome
+	var teams_cnt = GameState.active_match_teams.size()
+	var net_extra = ""
+	if GameState.current_mode.begins_with("ONLINE"):
+		net_extra = "  |  Room: " + GameState.room_code + " (" + GameState.room_privacy + ")"
+	if scoreboard_info_label:
+		scoreboard_info_label.text = "Mode: " + m_mode + "  |  Layout: " + m_layout + "  |  Biome: " + m_biome + "  |  Teams: " + str(teams_cnt) + net_extra
+
+	var teams_to_show: Array[String] = []
+	if not GameState.active_match_teams.is_empty():
+		for t: String in GameState.active_match_teams:
+			if not teams_to_show.has(t):
+				teams_to_show.append(t)
+	else:
+		for t: String in GameState.ALL_TEAMS:
+			if get_tree() and get_tree().get_nodes_in_group(t).size() > 0:
+				teams_to_show.append(t)
+		if teams_to_show.is_empty():
+			teams_to_show = ["SideA", "SideB"]
+
+	var am = (get_tree().current_scene if get_tree() and get_tree().current_scene else get_parent())
+	var bot_archetypes := {}
+	if am:
+		for ch in am.get_children():
+			if ch is BotAI:
+				bot_archetypes[ch.my_team] = ch.archetype
+
+	for team_name in teams_to_show:
+		var bases_count = 0
+		var towers_count = 0
+		var units_count = 0
+		if get_tree():
+			for n in get_tree().get_nodes_in_group(team_name):
+				if not is_instance_valid(n): continue
+				if "Base" in n.name or n.is_in_group("Citadel"):
+					bases_count += 1
+				elif "Tower" in n.name:
+					towers_count += 1
+				elif n.is_in_group("Targetable") or n is CharacterBody3D:
+					units_count += 1
+
+		var t_col = GameState.get_team_color(team_name)
+		var t_col_name = GameState.get_team_color_name(team_name)
+		var pen_pct = GameState.get_team_energy_penalty_pct(team_name)
+
+		var row_panel = PanelContainer.new()
+		var row_style = StyleBoxFlat.new()
+		row_style.bg_color = Color(t_col.r * 0.15, t_col.g * 0.15, t_col.b * 0.15, 0.75)
+		row_style.border_color = t_col
+		row_style.set_border_width_all(1)
+		row_style.set_corner_radius_all(4)
+		row_panel.add_theme_stylebox_override("panel", row_style)
+		scoreboard_rows_container.add_child(row_panel)
+
+		var row_margin = MarginContainer.new()
+		row_margin.add_theme_constant_override("margin_left", 8)
+		row_margin.add_theme_constant_override("margin_right", 8)
+		row_margin.add_theme_constant_override("margin_top", 4)
+		row_margin.add_theme_constant_override("margin_bottom", 4)
+		row_panel.add_child(row_margin)
+
+		var row_hbox = HBoxContainer.new()
+		row_hbox.add_theme_constant_override("separation", 10)
+		row_margin.add_child(row_hbox)
+
+		# Color Swatch
+		var swatch = ColorRect.new()
+		swatch.color = t_col
+		swatch.custom_minimum_size = Vector2(24, 24)
+		row_hbox.add_child(swatch)
+
+		# Team & Color Name
+		var name_lbl = Label.new()
+		name_lbl.text = team_name + " (" + t_col_name + ")"
+		name_lbl.custom_minimum_size = Vector2(210, 0)
+		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_lbl.add_theme_color_override("font_color", t_col.lightened(0.2))
+		name_lbl.add_theme_font_size_override("font_size", 13)
+		row_hbox.add_child(name_lbl)
+
+		# Controller / Faction
+		var ctrl_lbl = Label.new()
+		var ctrl_desc = "AI Commander"
+		if team_name == GameState.local_player_team and GameState.current_mode != "AI_VS_AI":
+			ctrl_desc = "Local Player (" + GameState.player_display_name + ")"
+		elif bot_archetypes.has(team_name):
+			ctrl_desc = "AI (" + str(bot_archetypes[team_name]) + ")"
+		elif GameState.current_mode.begins_with("ONLINE"):
+			ctrl_desc = "Online Player"
+		ctrl_lbl.text = ctrl_desc
+		ctrl_lbl.custom_minimum_size = Vector2(180, 0)
+		ctrl_lbl.add_theme_font_size_override("font_size", 12)
+		row_hbox.add_child(ctrl_lbl)
+
+		# Citadels
+		var bases_lbl = Label.new()
+		bases_lbl.text = str(bases_count)
+		bases_lbl.custom_minimum_size = Vector2(65, 0)
+		bases_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		bases_lbl.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4) if bases_count <= 0 else Color(0.4, 1.0, 0.4))
+		row_hbox.add_child(bases_lbl)
+
+		# Towers
+		var towers_lbl = Label.new()
+		towers_lbl.text = str(towers_count)
+		towers_lbl.custom_minimum_size = Vector2(65, 0)
+		towers_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row_hbox.add_child(towers_lbl)
+
+		# Units
+		var units_lbl = Label.new()
+		units_lbl.text = str(units_count)
+		units_lbl.custom_minimum_size = Vector2(60, 0)
+		units_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row_hbox.add_child(units_lbl)
+
+		# Energy Rate
+		var rate_lbl = Label.new()
+		rate_lbl.text = "100%" if pen_pct == 0 else ("-" + str(pen_pct) + "% Asym")
+		rate_lbl.custom_minimum_size = Vector2(110, 0)
+		rate_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rate_lbl.add_theme_color_override("font_color", Color(1.0, 0.75, 0.3) if pen_pct > 0 else Color(0.7, 0.9, 1.0))
+		row_hbox.add_child(rate_lbl)
+
+		# Focus / Spectate Button
+		var focus_btn = Button.new()
+		focus_btn.text = "Focus"
+		focus_btn.custom_minimum_size = Vector2(75, 26)
+		focus_btn.add_theme_font_size_override("font_size", 12)
+		focus_btn.connect("pressed", Callable(self, "_on_scoreboard_focus_team").bind(team_name))
+		row_hbox.add_child(focus_btn)
+
+func _on_scoreboard_focus_team(team_name: String):
+	var cam = _get_active_cam()
+	if cam and cam.has_method("snap_to_team"):
+		cam.snap_to_team(team_name)
+	if scoreboard_overlay:
+		scoreboard_overlay.visible = false
 

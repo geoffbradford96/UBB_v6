@@ -6,7 +6,16 @@ var faction: String = "Dominion"
 
 # This allows you to drag and drop the Projectile.tscn into the inspector
 @export var projectile_scene: PackedScene 
-@export var team: String = "SideB"
+@export var team: String = "SideB":
+	set(val):
+		team = val
+		if is_inside_tree():
+			for g in get_groups():
+				if g.begins_with("Side"):
+					remove_from_group(g)
+			if team != "":
+				add_to_group(team)
+		enemy_team = "SideB" if team == "SideA" else "SideA"
 
 var current_target: Node3D = null
 var fire_rate = 1.0 # shoots once every second
@@ -15,8 +24,9 @@ var enemy_team: String = "SideA"
 
 func _ready():
 	add_to_group("Targetable")
-	if is_in_group("SideA"): remove_from_group("SideA")
-	if is_in_group("SideB"): remove_from_group("SideB")
+	for g in get_groups():
+		if g.begins_with("Side"):
+			remove_from_group(g)
 	add_to_group(team)
 	if team == "SideA":
 		enemy_team = "SideB"
@@ -30,6 +40,8 @@ func _ready():
 		
 	# Check for units already spawned inside detection area
 	await get_tree().process_frame
+	if not is_inside_tree():
+		return
 	var det = get_node_or_null("DetectionArea")
 	if det and is_instance_valid(det):
 		for b in det.get_overlapping_bodies():
@@ -37,36 +49,56 @@ func _ready():
 
 func _on_tower_destroyed():
 	# If this is a Player tower, tell the ArenaManager to speed up Requisition!
-	if team == "SideA":
-		var manager = get_tree().current_scene
-		if manager.has_method("tower_lost"):
-			manager.tower_lost()
+	var tree = get_tree()
+	if not tree:
+		return
+	var manager = tree.current_scene
+	if manager and is_instance_valid(manager) and manager.has_method("tower_lost"):
+		manager.tower_lost()
 
 var targets_in_range: Array = []
+var _target_cleanup_timer: float = 0.0
+
+func _get_game_state():
+	if Engine.has_singleton("GameState"):
+		return Engine.get_singleton("GameState")
+	var loop = Engine.get_main_loop()
+	if loop and loop is SceneTree:
+		var r = (loop as SceneTree).root
+		if r and r.has_node("GameState"):
+			return r.get_node("GameState")
+	return null
 
 func _process(delta):
-	# Clean up dead or stealthed targets from our array
-	targets_in_range = targets_in_range.filter(func(t):
-		if not is_instance_valid(t): return false
-		var hc = t.get_node_or_null("HealthComponent")
-		if hc and hc.is_dead: return false
-		if GameState.is_unit_stealthed_from(t, self): return false
-		return t.is_in_group("Targetable")
-	)
-	
+	var gs = _get_game_state()
+	_target_cleanup_timer -= delta
+	if _target_cleanup_timer <= 0.0:
+		_target_cleanup_timer = 0.35
+		var valid_targets: Array = []
+		for t in targets_in_range:
+			if is_instance_valid(t) and not t.is_in_group(team):
+				var hc = t.get_node_or_null("HealthComponent")
+				if hc and not hc.is_dead and t.is_in_group("Targetable") and not (gs and gs.is_unit_stealthed_from(t, self)):
+					valid_targets.append(t)
+		targets_in_range = valid_targets
+
 	if is_instance_valid(current_target):
 		var curr_hc = current_target.get_node_or_null("HealthComponent")
-		if (curr_hc and curr_hc.is_dead) or not current_target.is_in_group("Targetable"):
+		if (curr_hc and curr_hc.is_dead) or not current_target.is_in_group("Targetable") or current_target.is_in_group(team) or (gs and gs.is_unit_stealthed_from(current_target, self)):
 			targets_in_range.erase(current_target)
 			current_target = null
 	else:
 		current_target = null
 			
-	if current_target == null or not is_instance_valid(current_target):
-		if targets_in_range.size() > 0:
-			current_target = targets_in_range[0]
-		else:
-			current_target = null
+	if current_target == null:
+		while targets_in_range.size() > 0:
+			var candidate = targets_in_range[0]
+			if is_instance_valid(candidate) and not candidate.is_in_group(team):
+				var c_hc = candidate.get_node_or_null("HealthComponent")
+				if c_hc and not c_hc.is_dead and candidate.is_in_group("Targetable") and not (gs and gs.is_unit_stealthed_from(candidate, self)):
+					current_target = candidate
+					break
+			targets_in_range.pop_front()
 			
 	if is_instance_valid(current_target):
 		var f_mesh = get_meta("faction_mesh") if has_meta("faction_mesh") else null
@@ -114,11 +146,13 @@ func shoot_at_target():
 			elif faction == "Dominion": laser_color = Color(1.0, 0.65, 0.1)
 			elif faction == "Pirates": laser_color = Color(1.0, 0.45, 0.1)
 			elif faction == "Rimworlders": laser_color = Color(1.0, 0.35, 0.05)
+			elif faction == "Plague of Harmony": laser_color = Color(1.0, 0.88, 0.22)
+			elif faction == "Gilded Harmony": laser_color = Color(0.56, 0.88, 1.0)
 			mat.albedo_color = laser_color
 			mat.emission_enabled = true
 			mat.emission = laser_color
 			mat.emission_energy_multiplier = 3.0
-			mesh.set_surface_override_material(0, mat)
+			mesh.material_override = mat
 
 func _on_detection_area_body_entered(body):
 	if body.is_in_group("Targetable") and not body.is_in_group(team):

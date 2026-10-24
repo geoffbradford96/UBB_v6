@@ -12,8 +12,34 @@ var attack_timer: float = 0.0
 
 var projectile_scene = preload("res://Scenes/Projectile.tscn")
 
+func _get_game_state():
+	if Engine.has_singleton("GameState"):
+		return Engine.get_singleton("GameState")
+	var loop = Engine.get_main_loop()
+	if loop and loop is SceneTree:
+		var root = (loop as SceneTree).root
+		if root and root.has_node("GameState"):
+			return root.get_node("GameState")
+	return null
+
 func _ready():
 	add_to_group("Targetable")
+	var m_inst = get_node_or_null("MeshInstance3D")
+	if m_inst and m_inst.get_node_or_null("DishSupportMast") == null:
+		var mast = MeshInstance3D.new()
+		mast.name = "DishSupportMast"
+		var cyl = CylinderMesh.new()
+		cyl.top_radius = 0.12
+		cyl.bottom_radius = 0.18
+		cyl.height = 0.55
+		mast.mesh = cyl
+		var mat = StandardMaterial3D.new()
+		mat.albedo_color = Color(0.16, 0.18, 0.20)
+		mat.metallic = 0.85
+		mat.roughness = 0.35
+		mast.material_override = mat
+		mast.position = Vector3(0.8, 1.02, 0.0)
+		m_inst.add_child(mast)
 
 func _physics_process(delta):
 	if not is_on_floor():
@@ -25,10 +51,9 @@ func _physics_process(delta):
 	velocity.z = 0
 	move_and_slide()
 	
-	if not "target_recheck_timer" in self:
-		set_meta("target_recheck", 1.0)
-	var __target_timer = get_meta("target_recheck") if has_meta("target_recheck") else 1.0
-	__target_timer -= delta
+	if not has_meta("target_recheck"):
+		set_meta("target_recheck", randf_range(0.8, 1.2))
+	var __target_timer = get_meta("target_recheck") - delta
 	set_meta("target_recheck", __target_timer)
 	
 	var target_is_dead = false
@@ -40,7 +65,7 @@ func _physics_process(delta):
 		current_target = null
 			
 	if current_target == null or target_is_dead or __target_timer <= 0.0:
-		if __target_timer <= 0.0 or target_is_dead: set_meta("target_recheck", 1.0)
+		if __target_timer <= 0.0 or target_is_dead: set_meta("target_recheck", randf_range(0.8, 1.2))
 		find_new_target()
 		
 	if is_instance_valid(current_target):
@@ -80,35 +105,46 @@ func shoot():
 			elif faction == "Dominion": laser_color = Color(1.0, 0.65, 0.1)
 			elif faction == "Pirates": laser_color = Color(1.0, 0.45, 0.1)
 			elif faction == "Rimworlders": laser_color = Color(1.0, 0.35, 0.05)
+			elif faction == "Plague of Harmony": laser_color = Color(1.0, 0.88, 0.22)
+			elif faction == "Gilded Harmony": laser_color = Color(0.56, 0.88, 1.0)
 			mat.albedo_color = laser_color
 			mat.emission_enabled = true
 			mat.emission = laser_color
 			mat.emission_energy_multiplier = 2.0
-			mesh.set_surface_override_material(0, mat)
+			mesh.material_override = mat
 
 func find_new_target():
 	current_target = null
+	if not is_inside_tree() or not get_tree():
+		return
 	var my_team = ""
 	for g in get_groups():
-		if g.begins_with("Side"): my_team = g
-	var enemies = []
-	if my_team != "":
-		for node in get_tree().get_nodes_in_group("Targetable"):
-			if not node.is_in_group(my_team) and is_instance_valid(node) and node != self:
-				enemies.append(node)
+		if g.begins_with("Side"):
+			my_team = g
+			break
+	if my_team == "":
+		return
 	var closest = 99999.0
-	for e in enemies:
-		if is_instance_valid(e):
-			var target_hc = e.get_node_or_null("HealthComponent")
-			if target_hc and target_hc.is_dead: continue
-			if GameState.is_unit_stealthed_from(e, self): continue
-			var d = global_position.distance_to(e.global_position)
-			var effective_range = attack_range + 0.5
-			if "Base" in e.name:
-				effective_range += 5.5
-			elif "Tower" in e.name or "CommandBay" in e.name:
-				effective_range += 2.5
-				
-			if d < effective_range and d < closest:
-				closest = d
-				current_target = e
+	var my_pos = global_position
+
+	for node in get_tree().get_nodes_in_group("Targetable"):
+		if node == self or not is_instance_valid(node) or node.is_in_group(my_team):
+			continue
+		var d = my_pos.distance_to(node.global_position)
+		var effective_range = attack_range + 0.5
+		if "Base" in node.name:
+			effective_range += 5.5
+		elif "Tower" in node.name or "CommandBay" in node.name:
+			effective_range += 2.5
+			
+		if d >= effective_range or d >= closest:
+			continue
+		var target_hc = node.get_node_or_null("HealthComponent")
+		if target_hc and target_hc.is_dead:
+			continue
+		var gs = _get_game_state()
+		if gs and gs.is_unit_stealthed_from(node, self):
+			continue
+
+		closest = d
+		current_target = node

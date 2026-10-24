@@ -6,4 +6,5 @@
 [resource]
 script = ExtResource("1_script")
 card_name = "SupportingFire"
+is_melee = false
 unit_scene = ExtResource("2_scene")

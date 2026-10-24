@@ -55,15 +55,22 @@ size = Vector3(0.2, 2, 0.2)
 
 [node name="ScrapCommander" type="CharacterBody3D"]
 script = ExtResource("1_jp6t7")
-max_health = 100.0
-attack_damage = 60.0
+max_health = 700.0
+max_armor = 350.0
+armor_style = "SCRAP"
+armor_color = Color(0.65, 0.38, 0.18, 1.0)
+attack_damage = 90.0
 
 [node name="@CollisionShape3D@2" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 shape = SubResource("BoxShape3D_ebv20")
 
-[node name="HealthComponent" type="Node3D" parent="."]
+[node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("2_g5fcc")
+max_health = 700.0
+max_armor = 350.0
+armor_style = "SCRAP"
+armor_color = Color(0.65, 0.38, 0.18, 1.0)
 
 [node name="AnimationPlayer" type="AnimationPlayer" parent="."]
 libraries = {

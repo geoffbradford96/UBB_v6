@@ -131,36 +131,56 @@ func _build_scorpion_mesh():
 	head_m.position = Vector3(0, 0.24, -0.6)
 	visual_mesh.add_child(head_m)
 	
-	# Pincers Left and Right
+	# Pincers Left and Right + Shoulder Sockets + 6 Chitinous Legs
 	for side in [-1.0, 1.0]:
+		var shoulder = MeshInstance3D.new()
+		var sh_sph = SphereMesh.new()
+		sh_sph.radius = 0.11
+		shoulder.mesh = sh_sph
+		shoulder.material_override = accent_mat
+		shoulder.position = Vector3(side * 0.34, 0.22, -0.52)
+		visual_mesh.add_child(shoulder)
+
 		var claw_arm = MeshInstance3D.new()
 		var arm_box = BoxMesh.new()
-		arm_box.size = Vector3(0.12, 0.12, 0.4)
+		arm_box.size = Vector3(0.12, 0.12, 0.45)
 		claw_arm.mesh = arm_box
 		claw_arm.material_override = chitin_mat
-		claw_arm.position = Vector3(side * 0.45, 0.22, -0.7)
+		claw_arm.position = Vector3(side * 0.44, 0.22, -0.7)
 		claw_arm.rotation.y = side * 0.4
 		visual_mesh.add_child(claw_arm)
 		
 		var pincer = MeshInstance3D.new()
 		var pincer_box = BoxMesh.new()
-		pincer_box.size = Vector3(0.2, 0.12, 0.3)
+		pincer_box.size = Vector3(0.2, 0.12, 0.32)
 		pincer.mesh = pincer_box
 		pincer.material_override = accent_mat
-		pincer.position = Vector3(side * 0.6, 0.22, -0.95)
+		pincer.position = Vector3(side * 0.56, 0.22, -0.92)
 		visual_mesh.add_child(pincer)
+
+		for l_z in [-0.32, 0.0, 0.32]:
+			var s_leg = MeshInstance3D.new()
+			var sl_cyl = CylinderMesh.new()
+			sl_cyl.top_radius = 0.045
+			sl_cyl.bottom_radius = 0.025
+			sl_cyl.height = 0.38
+			s_leg.mesh = sl_cyl
+			s_leg.material_override = accent_mat
+			s_leg.position = Vector3(side * 0.42, 0.14, l_z)
+			s_leg.rotation_degrees.z = side * 42.0
+			visual_mesh.add_child(s_leg)
 		
 	# Arched Stinger Tail (4 segments curved up and forward)
 	var tail_segs = [
-		Vector3(0, 0.35, 0.55),
-		Vector3(0, 0.65, 0.70),
-		Vector3(0, 0.95, 0.50),
-		Vector3(0, 1.05, 0.20)
+		Vector3(0, 0.35, 0.52),
+		Vector3(0, 0.60, 0.64),
+		Vector3(0, 0.85, 0.48),
+		Vector3(0, 1.00, 0.22)
 	]
 	for pos in tail_segs:
 		var seg = MeshInstance3D.new()
 		var seg_box = BoxMesh.new()
-		seg_box.size = Vector3(0.22, 0.22, 0.25)
+		seg_box.size = Vector3(0.22, 0.24, 0.28)
 		seg.mesh = seg_box
 		seg.material_override = chitin_mat
 		seg.position = pos
@@ -171,10 +191,10 @@ func _build_scorpion_mesh():
 	var stinger_cone = CylinderMesh.new()
 	stinger_cone.top_radius = 0.02
 	stinger_cone.bottom_radius = 0.12
-	stinger_cone.height = 0.3
+	stinger_cone.height = 0.32
 	stinger.mesh = stinger_cone
 	stinger.material_override = stinger_mat
-	stinger.position = Vector3(0, 1.05, -0.05)
+	stinger.position = Vector3(0, 1.02, 0.02)
 	stinger.rotation.x = -1.2 # Curved pointing forward
 	visual_mesh.add_child(stinger)
 
@@ -193,18 +213,29 @@ func _build_ant_mesh():
 	head_sph.height = 0.32
 	head.mesh = head_sph
 	head.material_override = ant_mat
-	head.position = Vector3(0, 0.25, -0.38)
+	head.position = Vector3(0, 0.25, -0.34)
 	visual_mesh.add_child(head)
 	
-	# Thorax
+	# Thorax + Petiole Waist Node connecting Head, Thorax, and Abdomen
 	var thorax = MeshInstance3D.new()
 	var th_sph = SphereMesh.new()
-	th_sph.radius = 0.14
-	th_sph.height = 0.28
+	th_sph.radius = 0.15
+	th_sph.height = 0.32
 	thorax.mesh = th_sph
 	thorax.material_override = ant_mat
 	thorax.position = Vector3(0, 0.24, 0.0)
 	visual_mesh.add_child(thorax)
+
+	var petiole = MeshInstance3D.new()
+	var p_cyl = CylinderMesh.new()
+	p_cyl.top_radius = 0.08
+	p_cyl.bottom_radius = 0.08
+	p_cyl.height = 0.65
+	petiole.mesh = p_cyl
+	petiole.material_override = ant_mat
+	petiole.rotation_degrees.x = 90.0
+	petiole.position = Vector3(0, 0.25, 0.04)
+	visual_mesh.add_child(petiole)
 	
 	# Abdomen / Gaster
 	var abdomen = MeshInstance3D.new()
@@ -213,19 +244,30 @@ func _build_ant_mesh():
 	ab_sph.height = 0.42
 	abdomen.mesh = ab_sph
 	abdomen.material_override = ant_mat
-	abdomen.position = Vector3(0, 0.28, 0.42)
+	abdomen.position = Vector3(0, 0.28, 0.38)
 	visual_mesh.add_child(abdomen)
 	
-	# Tiny mandibles
+	# Tiny mandibles + 6 Chitinous Ant Legs
 	for side in [-1.0, 1.0]:
 		var mand = MeshInstance3D.new()
 		var mand_box = BoxMesh.new()
-		mand_box.size = Vector3(0.06, 0.04, 0.14)
+		mand_box.size = Vector3(0.06, 0.04, 0.16)
 		mand.mesh = mand_box
 		mand.material_override = ant_mat
-		mand.position = Vector3(side * 0.1, 0.20, -0.54)
+		mand.position = Vector3(side * 0.09, 0.20, -0.48)
 		mand.rotation.y = side * -0.3
 		visual_mesh.add_child(mand)
+		for l_z in [-0.14, 0.0, 0.14]:
+			var a_leg = MeshInstance3D.new()
+			var al_cyl = CylinderMesh.new()
+			al_cyl.top_radius = 0.03
+			al_cyl.bottom_radius = 0.015
+			al_cyl.height = 0.32
+			a_leg.mesh = al_cyl
+			a_leg.material_override = ant_mat
+			a_leg.position = Vector3(side * 0.18, 0.14, l_z)
+			a_leg.rotation_degrees.z = side * 38.0
+			visual_mesh.add_child(a_leg)
 
 func _physics_process(delta):
 	# Apply gravity
@@ -280,7 +322,7 @@ func _physics_process(delta):
 					if creature_type == "SwarmAnt":
 						_shoot_acid_spit(current_target)
 					else:
-						th.take_damage(attack_damage)
+						th.take_damage(attack_damage, global_position)
 						if visual_mesh:
 							visual_mesh.position.z -= 0.2
 	else:
@@ -362,6 +404,16 @@ func _shoot_acid_spit(target_node: Node3D):
 				a_mat.emission_energy_multiplier = 2.0
 				p_mesh.material_override = a_mat
 
+func _get_game_state():
+	if Engine.has_singleton("GameState"):
+		return Engine.get_singleton("GameState")
+	var loop = Engine.get_main_loop()
+	if loop and loop is SceneTree:
+		var r = (loop as SceneTree).root
+		if r and r.has_node("GameState"):
+			return r.get_node("GameState")
+	return null
+
 func _evaluate_targeting():
 	if not is_instance_valid(current_target):
 		current_target = null
@@ -373,23 +425,25 @@ func _evaluate_targeting():
 	if current_target == null:
 		var closest_dist = leash_radius
 		var best_target = null
+		var gs = _get_game_state()
 		
-		var my_group = "Scorpion" if creature_type == "Scorpion" else "SwarmAnt"
-		for node in get_tree().get_nodes_in_group("Targetable"):
-			if node == self or not is_instance_valid(node): continue
-			if node.is_in_group(my_group) or node.is_in_group("NeutralCreature") or node.is_in_group("NeutralStructure"): continue
-			
-			var hc = node.get_node_or_null("HealthComponent")
-			if hc and hc.is_dead: continue
-			
-			# Check stealth in grass
-			if GameState.is_unit_stealthed_from(node, self):
-				continue
+		if is_inside_tree() and get_tree():
+			var my_group = "Scorpion" if creature_type == "Scorpion" else "SwarmAnt"
+			for node in get_tree().get_nodes_in_group("Targetable"):
+				if node == self or not is_instance_valid(node): continue
+				if node.is_in_group(my_group) or node.is_in_group("NeutralCreature") or node.is_in_group("NeutralStructure"): continue
 				
-			var dist_from_nest = home_position.distance_to(node.global_position)
-			if dist_from_nest <= leash_radius and dist_from_nest < closest_dist:
-				closest_dist = dist_from_nest
-				best_target = node
+				var hc = node.get_node_or_null("HealthComponent")
+				if hc and hc.is_dead: continue
+				
+				# Check stealth in grass
+				if gs and gs.is_unit_stealthed_from(node, self):
+					continue
+					
+				var dist_from_nest = home_position.distance_to(node.global_position)
+				if dist_from_nest <= leash_radius and dist_from_nest < closest_dist:
+					closest_dist = dist_from_nest
+					best_target = node
 				
 		current_target = best_target
 

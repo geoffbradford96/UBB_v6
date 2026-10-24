@@ -20,6 +20,7 @@ var corpse_durations = [5.0, 15.0, 30.0, 60.0, -1.0]
 var corpse_duration_labels = ["Short (5s)", "Standard (15s)", "Long (30s)", "Extended (60s)", "Permanent"]
 
 func _ready():
+	_apply_settings_visual_theme()
 	# Populate Resolution Dropdown
 	for res in resolutions:
 		resolution_option.add_item(str(res.x) + " x " + str(res.y))
@@ -55,6 +56,34 @@ func _ready():
 	corpse_duration_dropdown.select(dur_idx if dur_idx != -1 else 1)
 	
 	_load_settings()
+
+func _apply_settings_visual_theme():
+	var bg = get_node_or_null("ColorRect")
+	if bg:
+		bg.color = Color(0.06, 0.10, 0.16, 1.0)
+	var top_trim = ColorRect.new()
+	top_trim.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	top_trim.offset_bottom = 10.0
+	top_trim.color = Color(0.88, 0.74, 0.22, 1.0)
+	add_child(top_trim)
+	var bot_trim = ColorRect.new()
+	bot_trim.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	bot_trim.offset_top = -10.0
+	bot_trim.color = Color(0.18, 0.78, 0.95, 1.0)
+	add_child(bot_trim)
+	var title_lbl = get_node_or_null("CenterContainer/VBoxContainer/Label")
+	if title_lbl:
+		title_lbl.text = "SYSTEM & BATTLEFIELD SETTINGS"
+		title_lbl.add_theme_color_override("font_color", Color(1.0, 0.88, 0.35, 1.0))
+	var back_btn = get_node_or_null("BackBtn")
+	if back_btn is Button:
+		var st = StyleBoxFlat.new()
+		st.bg_color = Color(0.12, 0.19, 0.29, 0.95)
+		st.border_color = Color(0.82, 0.70, 0.24, 1.0)
+		st.set_border_width_all(2)
+		st.set_corner_radius_all(6)
+		back_btn.add_theme_stylebox_override("normal", st)
+
 
 func _load_settings():
 	var cfg = ConfigFile.new()

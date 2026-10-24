@@ -29,11 +29,23 @@ size = Vector3(3, 0.5, 1)
 [sub_resource type="BoxMesh" id="BoxMesh_y85fm"]
 size = Vector3(3, 0.5, 1)
 
-[node name="VoidOverlord" type="CharacterBody3D" ]
+[node name="VoidOverlord" type="CharacterBody3D"]
 script = ExtResource("1_script")
+max_health = 850.0
+max_shield = 400.0
+shield_type = "360"
+shield_color = Color(0.65, 0.15, 0.95, 0.5)
+shield_recharge_rate = 25.0
+attack_damage = 95.0
+attack_range = 3.5
 
 [node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("2_health")
+max_health = 850.0
+max_shield = 400.0
+shield_type = "360"
+shield_color = Color(0.65, 0.15, 0.95, 0.5)
+shield_recharge_rate = 25.0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("CapsuleShape3D_1")
